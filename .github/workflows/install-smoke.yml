@@ -1,0 +1,99 @@
+name: Install smoke test
+
+# 用 README 里的两条一行命令，在干净的 GitHub runner 上真实安装最新的 Release
+# 并运行 --version / --help，然后卸载。用来验证「发布产物 + 安装脚本 + 网络路径」
+# 整条链路，而不只是脚本逻辑（脚本逻辑由 ci.yml 的 installers job 覆盖）。
+#
+# 触发方式：
+#   - 每次发布 Release 后自动运行；
+#   - Actions 页面手动触发（可选指定版本号，留空则验证 latest）。
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "要验证的版本号（例如 0.1.1；留空 = 最新 release）"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Linux one-liner
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expected='${{ inputs.version }}'
+          if [ -z "${expected}" ]; then expected='${{ github.event.release.tag_name }}'; fi
+          expected="${expected#v}"
+          echo "expected version: ${expected:-<any>}"
+
+          # README 里的一行命令（原样）
+          curl -fsSL https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh | sh
+          got="$("$HOME/.local/bin/rswfn" --version)"
+          echo "installed: ${got}"
+          "$HOME/.local/bin/rswfn" --help > /dev/null
+
+          if [ -n "${expected}" ]; then
+            echo "${got}" | grep -q "rswfn ${expected}" || {
+              echo "::error::installed version '${got}' does not match expected '${expected}'"
+              exit 1
+            }
+          fi
+
+          # 卸载也要能用（同一个脚本、同一个一行命令）
+          curl -fsSL https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh | sh -s -- --uninstall
+          if [ -e "$HOME/.local/bin/rswfn" ]; then
+            echo "::error::rswfn is still present after --uninstall"
+            exit 1
+          fi
+
+      - name: Windows one-liner
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $expected = '${{ inputs.version }}'
+          if ([string]::IsNullOrWhiteSpace($expected)) { $expected = '${{ github.event.release.tag_name }}' }
+          $expected = $expected.TrimStart('v')
+          Write-Host "expected version: $expected"
+
+          # README 里的一行命令（原样）
+          irm https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.ps1 | iex
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\rswfn\rswfn.exe'
+          if (-not (Test-Path -LiteralPath $exe)) {
+              Write-Host "::error::rswfn.exe not found after install: $exe"
+              exit 1
+          }
+          $got = (& $exe --version | Out-String).Trim()
+          Write-Host "installed: $got"
+          & $exe --help | Out-Null
+
+          if ($expected) {
+              if ($got -notmatch "rswfn $([regex]::Escape($expected))") {
+                  Write-Host "::error::installed version '$got' does not match expected '$expected'"
+                  exit 1
+              }
+          }
+
+          # 卸载：iex 形态不能传参，先下载脚本再 -File 执行
+          $script = Join-Path $env:TEMP 'install.ps1'
+          irm https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.ps1 -OutFile $script
+          & powershell -NoProfile -ExecutionPolicy Bypass -File $script -Uninstall
+          if (Test-Path -LiteralPath $exe) {
+              Write-Host "::error::rswfn.exe is still present after -Uninstall"
+              exit 1
+          }

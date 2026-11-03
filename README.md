@@ -64,9 +64,10 @@ On Linux x86_64 the installer picks the fully static **musl** build, so it runs
 on any distribution or container — Alpine, CentOS 7, Debian 11, … — regardless
 of the installed glibc version. The aarch64 build is glibc-based and requires
 glibc ≥ 2.39. Advanced users who prefer the dynamically linked build can install
-it with `--target x86_64-unknown-linux-gnu` (slightly faster, but it requires
-glibc ≥ 2.39). The Windows binary uses the static CRT: it is a single
-self-contained `.exe` with no `vcruntime140.dll` dependency.
+it with `--target x86_64-unknown-linux-gnu` (slightly faster; it targets
+glibc ≥ 2.39, so older systems may print a version warning there — the static
+build is the safe default). The Windows binary uses the static CRT: it is a
+single self-contained `.exe` with no `vcruntime140.dll` dependency.
 
 > **Note:** the one-line installers read the release assets from GitHub
 > Releases. If no release is available yet — or if you prefer building from

@@ -15,7 +15,7 @@
 
 | 方式 | 需要 Rust 工具链 | 支持平台 | 说明 |
 | --- | --- | --- | --- |
-| `install.sh` / `install.ps1` | 否 | Windows x86_64；Linux x86_64（默认全静态 musl，可选 gnu）、aarch64（gnu，glibc ≥ 2.39） | 下载预编译二进制，校验 SHA256 后安装 |
+| `install.sh` / `install.ps1` | 否 | Windows x86_64；Linux x86_64（默认全静态 musl，可选 gnu）、aarch64（gnu，面向 glibc ≥ 2.39） | 下载预编译二进制，校验 SHA256 后安装 |
 | `cargo install rswfn` | 是 | Cargo 支持的所有平台（含 macOS、Windows ARM64） | 从 crates.io 拉源码编译，耗时较长；当前版本 0.1.0 |
 | 源码构建 | 是 | 同上 | 克隆仓库后 `cargo build --release --locked` |
 
@@ -25,8 +25,8 @@ Release 中提供的资产：
 | --- | --- | --- |
 | `rswfn-<version>-x86_64-pc-windows-msvc.zip` | Windows x86_64 | 使用静态 CRT，单个可执行文件，不依赖 `vcruntime140.dll` |
 | `rswfn-<version>-x86_64-unknown-linux-musl.tar.gz` | Linux x86_64 | 全静态链接，任意发行版/容器可运行；安装脚本默认选它 |
-| `rswfn-<version>-x86_64-unknown-linux-gnu.tar.gz` | Linux x86_64 | 动态链接 glibc，要求 glibc ≥ 2.39；用 `--target` 指定 |
-| `rswfn-<version>-aarch64-unknown-linux-gnu.tar.gz` | Linux aarch64 | 动态链接 glibc，要求 glibc ≥ 2.39；暂无 aarch64 musl 产物 |
+| `rswfn-<version>-x86_64-unknown-linux-gnu.tar.gz` | Linux x86_64 | 动态链接 glibc，面向 glibc ≥ 2.39（更旧系统可能出现版本告警，建议用默认 musl 版）；用 `--target` 指定 |
+| `rswfn-<version>-aarch64-unknown-linux-gnu.tar.gz` | Linux aarch64 | 动态链接 glibc，面向 glibc ≥ 2.39；暂无 aarch64 musl 产物（更旧系统请从源码构建） |
 | `SHA256SUMS` | — | 每个归档一行 `<哈希><两个空格><文件名>` |
 
 没有预编译产物的平台（macOS、Windows ARM64、Linux aarch64 且 glibc < 2.39 等）请使用
@@ -43,7 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh | sh
 - 识别 CPU 架构，并据此选择 target（不需要探测系统 libc）：
   - `x86_64` / `amd64` → **`x86_64-unknown-linux-musl`**（全静态，任何发行版或容器都能
     运行，包括 Alpine、CentOS 7、Debian 11 等，不依赖 glibc 版本）；
-  - `aarch64` / `arm64` → `aarch64-unknown-linux-gnu`（暂无 musl 产物，要求 glibc ≥ 2.39）；
+  - `aarch64` / `arm64` → `aarch64-unknown-linux-gnu`（暂无 musl 产物，面向 glibc ≥ 2.39）；
   - 其他架构直接报错，并提示用 `--target` 指定目标平台。
 - 从 GitHub Releases 下载对应归档，并与 `SHA256SUMS` 校验（见第 6 节）；
 - 安装到 `~/.local/bin`；`$HOME` 未设置或不可写时回退 `/usr/local/bin`（仅在该目录可写时），
