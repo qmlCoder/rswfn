@@ -37,11 +37,95 @@ It can be used both as a **library** and as a **CLI / TUI** application.
 
 ## Installation
 
-### Command-line tool
+### One-line install (prebuilt binary, no Rust toolchain needed)
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.ps1 | iex
+```
+
+Linux (x86_64 and aarch64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh | sh
+```
+
+The scripts download a prebuilt binary from GitHub Releases, verify it against
+`SHA256SUMS`, and install it:
+
+| Platform | Archive | Default install directory |
+| --- | --- | --- |
+| Windows x86_64 (MSVC) | `rswfn-<version>-x86_64-pc-windows-msvc.zip` | `%LOCALAPPDATA%\Programs\rswfn` (appended to the user `PATH`) |
+| Linux x86_64 | `rswfn-<version>-x86_64-unknown-linux-musl.tar.gz` (fully static) | `~/.local/bin` |
+| Linux aarch64 | `rswfn-<version>-aarch64-unknown-linux-gnu.tar.gz` | `~/.local/bin` |
+
+On Linux x86_64 the installer picks the fully static **musl** build, so it runs
+on any distribution or container — Alpine, CentOS 7, Debian 11, … — regardless
+of the installed glibc version. The aarch64 build is glibc-based and requires
+glibc ≥ 2.39. Advanced users who prefer the dynamically linked build can install
+it with `--target x86_64-unknown-linux-gnu` (slightly faster, but it requires
+glibc ≥ 2.39). The Windows binary uses the static CRT: it is a single
+self-contained `.exe` with no `vcruntime140.dll` dependency.
+
+> **Note:** the one-line installers read the release assets from GitHub
+> Releases. If no release is available yet — or if you prefer building from
+> source — use `cargo install rswfn` (version 0.1.0 is published on crates.io).
+> Only Windows x86_64 and Linux x86_64/aarch64 have prebuilt binaries; Windows
+> ARM64 and macOS have none.
+
+Options (pin a version, choose the install directory, force a Linux target,
+uninstall, or install from a mirror):
+
+```sh
+# Linux: arguments after `sh -s --` are passed to the installer
+base=https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh
+curl -fsSL "$base" | sh -s -- --version 0.1.1
+curl -fsSL "$base" | sh -s -- --dir "$HOME/bin"
+curl -fsSL "$base" | sh -s -- --target x86_64-unknown-linux-gnu
+curl -fsSL "$base" | sh -s -- --uninstall
+curl -fsSL "$base" | sh -s -- --version 0.1.1 --base-url /mnt/usb/rswfn-mirror
+```
+
+```powershell
+# Windows: download the script first, then run it with options
+irm https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.ps1 -OutFile install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.1
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Dir "D:\tools\rswfn" -NoPath
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.1 -BaseUrl D:\rswfn-mirror
+```
+
+The environment variables `RSWFN_VERSION`, `RSWFN_INSTALL_DIR`,
+`RSWFN_BASE_URL`, `RSWFN_TARGET` and `RSWFN_SKIP_VERIFY` do the same job; the
+command line takes precedence. See
+[docs/install.md](https://github.com/qmlCoder/rswfn/blob/main/docs/install.md)
+for the complete reference.
+
+On Linux the installer never edits your shell configuration: it installs to
+`~/.local/bin` and prints the `export PATH=...` line to add if that directory is
+missing from your `PATH`. On Windows it appends the install directory to your
+user `PATH` by default (pass `-NoPath` to skip it); reopen the terminal
+afterwards.
+
+If you prefer to inspect the script before running it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh -o install.sh
+# review install.sh, then run it
+sh install.sh
+```
+
+### With Cargo (Rust toolchain required)
+
+The same command works on every platform Cargo supports (Windows, Linux,
+macOS):
 
 ```sh
 cargo install rswfn
 ```
+
+This builds `rswfn` from source; crates.io currently publishes version 0.1.0.
 
 ### As a library
 
@@ -137,3 +221,24 @@ Gaussian、ORCA、Molden 等程序的输出文件，进行各类波函数分析�
 双描述符、自由价、键级（Mayer / Wiberg）及其分解、芳香性、轨道成分分析，以及
 实空间函数（密度、静电势、ELF、RDG 等）的格点计算与导出。既可以作为库使用，
 也可以直接作为命令行 / TUI 程序运行。
+
+### 安装
+
+- **Windows**（PowerShell）：`irm https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.ps1 | iex`
+- **Linux**：`curl -fsSL https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh | sh`
+- **已安装 Rust 工具链**（Windows / Linux / macOS 通用）：`cargo install rswfn`
+
+安装脚本从 GitHub Releases 下载预编译二进制、校验 SHA256 后安装，不需要 Rust
+工具链和管理员权限。Linux x86_64 默认安装**全静态 musl** 产物，在任意发行版或容器
+（Alpine、CentOS 7、Debian 11 等）中都能直接运行，不依赖 glibc 版本；aarch64 目前只
+提供 gnu 产物，要求 glibc ≥ 2.39；高级用户可用 `--target x86_64-unknown-linux-gnu`
+安装动态链接的 gnu 版本（性能略好，但同样要求 glibc ≥ 2.39）。Windows 产物使用静态
+CRT，是单个 `.exe`，不依赖 `vcruntime140.dll`。
+
+注意：0.1.0 已发布到 crates.io，但仓库尚未创建首个 GitHub Release，因此两条一行命令
+要等首个 release（v0.1.1 或后续版本）发布后才可用；在此之前请使用
+`cargo install rswfn`。Windows 目前只提供 x86_64 产物（ARM64 暂不支持），默认安装到
+`%LOCALAPPDATA%\Programs\rswfn` 并写入用户 PATH，需重开终端生效（`-NoPath` 可跳过）。
+Linux 默认安装到 `~/.local/bin`，脚本不会修改 shell 配置文件，需要自行把该目录加入
+PATH。指定版本、自定义目录、离线安装、卸载等用法详见
+[docs/install.md](docs/install.md)。

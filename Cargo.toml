@@ -1,6 +1,6 @@
 [package]
 name = "rswfn"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Shi Xiaofei"]
 description = "A wavefunction analysis library and command-line tool for quantum chemistry"

@@ -3,6 +3,12 @@ name: CI
 # 每次 push / PR 都在 Windows 和 Linux 上验证代码能否编译。
 # 注意：这里只做编译检查，不跑 `cargo test`，因为 tests/ 里用的是
 # `E:\code\rswfn\moles\...` 这类本机绝对路径，在 CI 上没有对应数据文件。
+#
+# 除 check 之外还有两个轻量 job：
+#   - musl-link：确认 release.yml 用到的 x86_64-unknown-linux-musl 产物真的能链接出来
+#     （debug 构建、不开 lto，比 release 快很多；依赖编译由 rust-cache 复用）；
+#   - installers：不编译 Rust，用 stub 载荷构造 fake release，端到端验证
+#     install.sh / install.ps1（安装 → 断言 → 重复安装 → 篡改归档必须失败 → 卸载清理）。
 on:
   push:
     branches: [main]
@@ -31,3 +37,271 @@ jobs:
 
       - name: Build release binary
         run: cargo build --release --locked
+
+  # 验证 musl 静态产物能正常链接（release.yml 发布它，坏掉的编译器/依赖组合要在这里暴露）。
+  musl-link:
+    name: musl link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: musl-link
+
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build (debug, x86_64-unknown-linux-musl)
+        run: cargo build --locked --target x86_64-unknown-linux-musl
+
+  installers:
+    name: installers (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test install.sh (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          fail() { echo "::error::$*"; exit 1; }
+
+          version="0.1.0"
+          work="${RUNNER_TEMP}/rswfn-installers"
+          fake="${work}/fake"
+          release_dir="${fake}/v${version}"
+          install_dir="${work}/bin"
+          rm -rf "${work}"
+          mkdir -p "${release_dir}" "${install_dir}"
+
+          # 构造 fake release：两个 target 各一个 tar.gz，stub 打印自身 target，
+          # 便于断言「默认 target = musl」和「--target 覆盖」都取到了正确的资产。
+          for target in x86_64-unknown-linux-musl x86_64-unknown-linux-gnu; do
+            stage="${work}/payload-${target}"
+            mkdir -p "${stage}"
+            printf '#!/bin/sh\necho "rswfn %s target=%s"\n' "${version}" "${target}" > "${stage}/rswfn"
+            chmod 755 "${stage}/rswfn"
+            asset="rswfn-${version}-${target}.tar.gz"
+            tar -czf "${release_dir}/${asset}" -C "${stage}" rswfn
+            hash="$(sha256sum "${release_dir}/${asset}" | awk '{print $1}')"
+            printf '%s  %s\n' "${hash}" "${asset}"
+          done > "${release_dir}/SHA256SUMS"
+
+          # fake release 自身的 SHA256SUMS 必须符合契约：<64位小写hex><两个空格><裸文件名>
+          if grep -Evq '^[0-9a-f]{64}  [^/]+$' "${release_dir}/SHA256SUMS"; then
+            echo "::error::fake release 的 SHA256SUMS 格式不符合契约"
+            cat "${release_dir}/SHA256SUMS"
+            exit 1
+          fi
+
+          # ---- 场景 1：默认 target（契约：x86_64 默认 x86_64-unknown-linux-musl） ----
+          if ! sh install.sh --version "${version}" --base-url "${fake}" --dir "${install_dir}"; then
+            fail "install.sh 默认 target 安装失败（只区分成功/失败，不断言具体退出码）"
+          fi
+          [ -x "${install_dir}/rswfn" ] || fail "默认 target 安装后缺少可执行文件 ${install_dir}/rswfn"
+          got="$("${install_dir}/rswfn" --version)"
+          case "${got}" in
+            *target=x86_64-unknown-linux-musl*) ;;
+            *) fail "默认 target 未选中 musl 资产，stub 输出: ${got}" ;;
+          esac
+
+          # ---- 场景 2：显式 --target x86_64-unknown-linux-gnu ----
+          if ! sh install.sh --version "${version}" --base-url "${fake}" --dir "${install_dir}" --target x86_64-unknown-linux-gnu; then
+            fail "install.sh --target x86_64-unknown-linux-gnu 安装失败"
+          fi
+          got="$("${install_dir}/rswfn" --version)"
+          case "${got}" in
+            *target=x86_64-unknown-linux-gnu*) ;;
+            *) fail "--target 覆盖未生效，stub 输出: ${got}" ;;
+          esac
+
+          # ---- 场景 3：重复安装（幂等，原地升级） ----
+          if ! sh install.sh --version "${version}" --base-url "${fake}" --dir "${install_dir}"; then
+            fail "install.sh 重复安装失败"
+          fi
+          [ -x "${install_dir}/rswfn" ] || fail "重复安装后缺少可执行文件 ${install_dir}/rswfn"
+          got="$("${install_dir}/rswfn" --version)"
+          case "${got}" in
+            *target=x86_64-unknown-linux-musl*) ;;
+            *) fail "重复安装后资产不对，stub 输出: ${got}" ;;
+          esac
+
+          # ---- 场景 4：管道形式（README 一行命令的真实调用方式） ----
+          # 证明脚本不从 stdin 读数据（此时 stdin 是脚本本身），且 `sh -s --` 传参正确。
+          pipe_dir="${work}/bin-pipe"
+          if ! cat install.sh | sh -s -- --version "${version}" --base-url "${fake}" --dir "${pipe_dir}"; then
+            fail "管道形式安装失败：cat install.sh | sh -s -- --version ${version} ..."
+          fi
+          [ -x "${pipe_dir}/rswfn" ] || fail "管道形式安装后缺少可执行文件 ${pipe_dir}/rswfn"
+          got="$("${pipe_dir}/rswfn" --version)"
+          case "${got}" in
+            *target=x86_64-unknown-linux-musl*) ;;
+            *) fail "管道形式安装的 stub 输出异常: ${got}" ;;
+          esac
+
+          # ---- 场景 5：--help 只打印用法，不创建安装目录、不下载 ----
+          # --base-url 指向不存在的路径：若脚本在 --help 之前尝试解析版本/下载，必然失败。
+          help_dir="${work}/help-bin"
+          help_out="$(sh install.sh --help --dir "${help_dir}" --base-url "${work}/no-such-base" 2>&1)" || fail "install.sh --help 返回非 0"
+          case "${help_out}" in
+            *Usage:*) ;;
+            *) fail "install.sh --help 输出缺少 Usage:，实际输出: ${help_out}" ;;
+          esac
+          [ ! -e "${help_dir}" ] || fail "install.sh --help 不应创建安装目录 ${help_dir}"
+
+          # ---- 场景 6：篡改归档 → 校验和必须不匹配，脚本必须非 0 退出 ----
+          printf 'tampered\n' >> "${release_dir}/rswfn-${version}-x86_64-unknown-linux-gnu.tar.gz"
+          if sh install.sh --version "${version}" --base-url "${fake}" --dir "${install_dir}" --target x86_64-unknown-linux-gnu; then
+            fail "篡改归档后 install.sh 仍返回 0（应因校验和不匹配而失败）"
+          fi
+          # 契约：校验失败时立即失败、不安装，不能破坏已安装的文件
+          [ -x "${install_dir}/rswfn" ] || fail "校验失败时不应删除已安装的可执行文件"
+
+          # ---- 场景 7：卸载清理 ----
+          if ! sh install.sh --uninstall --version "${version}" --dir "${install_dir}"; then
+            fail "install.sh --uninstall 失败"
+          fi
+          [ ! -e "${install_dir}/rswfn" ] || fail "install.sh --uninstall 后 ${install_dir}/rswfn 仍然存在"
+          leftover="$(ls -A "${install_dir}" 2>/dev/null || true)"
+          [ -z "${leftover}" ] || fail "install.sh --uninstall 后安装目录残留文件: ${leftover}"
+
+      - name: Static check install.sh (sh -n, shellcheck if available)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # sh -n 是硬性语法检查：装不起来的脚本必须让 CI 红。
+          sh -n install.sh
+          # shellcheck 只告警不阻塞：本地无法预跑 shellcheck，风格类 issue 不应让 CI 变红，
+          # 但保留输出便于以后逐个修。
+          if command -v shellcheck > /dev/null 2>&1; then
+            if ! shellcheck install.sh; then
+              echo "::warning::shellcheck 报告了问题（不阻塞；见上方输出）"
+            fi
+          else
+            echo "::warning::runner 上没有 shellcheck，跳过 shellcheck（不影响作业结果）"
+          fi
+
+      - name: Test install.ps1 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Fail([string]$Message) {
+            Write-Host "::error::$Message"
+            exit 1
+          }
+
+          $version = '0.1.0'
+          $target = 'x86_64-pc-windows-msvc'
+          $asset = "rswfn-$version-$target.zip"
+          $work = Join-Path $env:RUNNER_TEMP 'rswfn-installers'
+          $fake = Join-Path $work 'fake'
+          $releaseDir = Join-Path $fake "v$version"
+          $installDir = Join-Path $work 'bin'
+          $stage = Join-Path $work 'payload'
+
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $work
+          New-Item -ItemType Directory -Force -Path $releaseDir, $installDir, $stage | Out-Null
+
+          # 构造 fake release：zip 根目录放 rswfn.exe。用系统自带 where.exe 复制改名，
+          # 避免为了 stub 去编译 Rust；install.ps1 的安装后 --version 自检按契约只警告不失败，
+          # 所以这里只断言文件存在，不断言自检输出。
+          Copy-Item -LiteralPath (Join-Path $env:SystemRoot 'System32\where.exe') -Destination (Join-Path $stage 'rswfn.exe') -Force
+          Compress-Archive -Path (Join-Path $stage 'rswfn.exe') -DestinationPath (Join-Path $releaseDir $asset) -Force
+
+          # SHA256SUMS：<64位小写hex><两个空格><裸文件名>，LF 换行
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $releaseDir $asset)).Hash.ToLowerInvariant()
+          $sumLine = "$hash  $asset" + "`n"
+          Set-Content -LiteralPath (Join-Path $releaseDir 'SHA256SUMS') -Value $sumLine -NoNewline -Encoding ascii
+
+          # install.ps1 失败一律 throw（支持 `irm | iex`，不能用 exit，否则会关掉用户终端），
+          # 所以用子进程 pwsh -File 运行，throw 会被映射成非 0 退出码，再断言 0 / 非 0。
+          $pwsh = (Get-Command pwsh).Source
+          $installer = Join-Path $PWD 'install.ps1'
+
+          # 注意 | Out-Host：安装脚本的标准输出只进日志，不混进函数返回值，
+          # 否则 $code 会变成「输出行 + 退出码」的数组，$code -ne 0 永远为真。
+          function Invoke-Installer([string[]]$InstallerArgs) {
+            & $pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installer @InstallerArgs | Out-Host
+            return $LASTEXITCODE
+          }
+
+          # ---- 场景 1：安装 ----
+          $code = Invoke-Installer @('-Version', $version, '-BaseUrl', $fake, '-Dir', $installDir, '-NoPath')
+          if ($code -ne 0) { Fail "install.ps1 安装失败（exit $code）" }
+          $installed = Join-Path $installDir 'rswfn.exe'
+          if (-not (Test-Path -LiteralPath $installed)) { Fail "install.ps1 安装后缺少 $installed" }
+
+          # ---- 场景 2：重复安装（幂等，原地升级） ----
+          $code = Invoke-Installer @('-Version', $version, '-BaseUrl', $fake, '-Dir', $installDir, '-NoPath')
+          if ($code -ne 0) { Fail "install.ps1 重复安装失败（exit $code）" }
+          if (-not (Test-Path -LiteralPath $installed)) { Fail "重复安装后缺少 $installed" }
+
+          # ---- 场景 3：iex 形态（README 一行命令 `irm ... | iex`） ----
+          # iex 无参数，只能靠环境变量（RSWFN_VERSION / RSWFN_INSTALL_DIR / RSWFN_BASE_URL）。
+          # 关键断言：子进程退出码 0 且输出 SURVIVED —— 脚本成功时 return、失败时 throw，
+          # 绝不调用 exit，否则会把用户终端关掉。
+          # 注意：iex 形态无法传 -NoPath，脚本会写用户级 PATH；先记录原值，跑完还原。
+          $iexDir = Join-Path $work 'iex-bin'
+          $userPathBefore = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $versionBefore = $env:RSWFN_VERSION
+          $dirBefore = $env:RSWFN_INSTALL_DIR
+          $baseBefore = $env:RSWFN_BASE_URL
+          $env:RSWFN_VERSION = $version
+          $env:RSWFN_INSTALL_DIR = $iexDir
+          $env:RSWFN_BASE_URL = $fake
+          try {
+            $iexCommand = '& ([scriptblock]::Create((Get-Content -LiteralPath ".\install.ps1" -Raw))); Write-Host SURVIVED'
+            $iexOut = & $pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command $iexCommand 2>&1
+            $iexCode = $LASTEXITCODE
+          } finally {
+            [Environment]::SetEnvironmentVariable('Path', $userPathBefore, 'User')
+            $env:RSWFN_VERSION = $versionBefore
+            $env:RSWFN_INSTALL_DIR = $dirBefore
+            $env:RSWFN_BASE_URL = $baseBefore
+          }
+          $iexOut | Out-Host
+          if ($iexCode -ne 0) { Fail "iex 形态安装失败（exit $iexCode）" }
+          if (($iexOut | Out-String) -notmatch 'SURVIVED') { Fail "iex 形态未输出 SURVIVED，install.ps1 可能调用了 exit 关掉会话" }
+          if (-not (Test-Path -LiteralPath (Join-Path $iexDir 'rswfn.exe'))) { Fail "iex 形态安装后缺少 $iexDir\rswfn.exe" }
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $iexDir
+
+          # ---- 场景 4：篡改归档 → 校验和必须不匹配，脚本必须非 0 退出 ----
+          Add-Content -LiteralPath (Join-Path $releaseDir $asset) -Value 'tampered' -Encoding ascii
+          $code = Invoke-Installer @('-Version', $version, '-BaseUrl', $fake, '-Dir', $installDir, '-NoPath')
+          if ($code -eq 0) { Fail "篡改归档后 install.ps1 仍返回 0（应因校验和不匹配而失败）" }
+          if (-not (Test-Path -LiteralPath $installed)) { Fail "校验失败时不应删除已安装的 rswfn.exe" }
+
+          # ---- 场景 5：卸载清理（契约：删 rswfn.exe；目录为空则一并删除） ----
+          $code = Invoke-Installer @('-Uninstall', '-Dir', $installDir, '-NoPath')
+          if ($code -ne 0) { Fail "install.ps1 -Uninstall 失败（exit $code）" }
+          if (Test-Path -LiteralPath $installed) { Fail "install.ps1 -Uninstall 后 $installed 仍然存在" }
+          $leftover = Get-ChildItem -LiteralPath $installDir -Force -ErrorAction SilentlyContinue
+          if ($leftover) { Fail "install.ps1 -Uninstall 后安装目录残留: $($leftover.Name -join ', ')" }
+
+      - name: Parse install.ps1 with Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'install.ps1'), [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors -and $parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Host "::error::$($_.Message)" }
+            exit 1
+          }
+          Write-Host 'install.ps1 通过 Windows PowerShell 5.1 语法解析'

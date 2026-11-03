@@ -54,6 +54,10 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build
+        # Windows 目标静态链接 CRT，产物不依赖用户机器上的 vcruntime140.dll；
+        # 其它 target 的 RUSTFLAGS 为空（不影响编译，rust-cache 会按 target 分开缓存）。
+        env:
+          RUSTFLAGS: ${{ matrix.target == 'x86_64-pc-windows-msvc' && '-C target-feature=+crt-static' || '' }}
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package
@@ -83,10 +87,22 @@ jobs:
           cp README.md LICENSE-MIT LICENSE-APACHE "${stage}/"
 
           case "${target}" in
-            *windows*) (cd "${stage}" && 7z a "../dist/${stage}.zip" . > /dev/null) ;;
-            *)         tar -czf "dist/${stage}.tar.gz" "${stage}" ;;
+            *windows*) asset="${stage}.zip"; (cd "${stage}" && 7z a "../dist/${asset}" . > /dev/null) ;;
+            *)         asset="${stage}.tar.gz"; tar -czf "dist/${asset}" "${stage}" ;;
           esac
 
+          # 生成校验和：契约要求每行 <64位小写hex><两个空格><资产文件名>，只写文件名不带路径。
+          # 用 printf 固定格式，避免不同平台 sha256sum 的文本/二进制模式输出差异。
+          hash="$(cd dist && sha256sum "${asset}" | awk '{print $1}')"
+          printf '%s  %s\n' "${hash}" "${asset}" > "dist/${asset}.sha256"
+
+          # 自检校验和格式（发布前就把格式错误挡在构建阶段）
+          grep -Eq '^[0-9a-f]{64}  [^/]+$' "dist/${asset}.sha256" || {
+            echo "::error::生成的校验和格式不符合契约: $(cat "dist/${asset}.sha256")"
+            exit 1
+          }
+
+          cat "dist/${asset}.sha256"
           ls -l dist
 
       - uses: actions/upload-artifact@v4
@@ -106,6 +122,87 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+
+      # merge-multiple 后 dist/ 里是 4 个归档 + 4 个零散 .sha256，
+      # 汇总成根目录唯一的 SHA256SUMS 资产，并删掉零散文件，避免它们被当成发布资产。
+      - name: Assemble SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+
+          shopt -s nullglob
+          shards=(*.sha256)
+          if [ "${#shards[@]}" -ne 4 ]; then
+            echo "::error::期望 4 个归档各自的 .sha256，实际得到 ${#shards[@]} 个: ${shards[*]:-（无）}"
+            ls -l
+            exit 1
+          fi
+
+          cat "${shards[@]}" | sort -k 2 > SHA256SUMS
+          rm -f "${shards[@]}"
+
+          # 自检：正好 4 行，且每行都是 <64位小写hex><两个空格><裸文件名>
+          if [ "$(wc -l < SHA256SUMS)" -ne 4 ]; then
+            echo "::error::SHA256SUMS 应为 4 行，实际 $(wc -l < SHA256SUMS) 行"
+            cat SHA256SUMS
+            exit 1
+          fi
+          if grep -Evq '^[0-9a-f]{64}  [^/]+$' SHA256SUMS; then
+            echo "::error::SHA256SUMS 存在格式非法的行（应为 <64位小写hex><两个空格><文件名>）"
+            cat SHA256SUMS
+            exit 1
+          fi
+
+          cat SHA256SUMS
+
+      # 上传前断言：4 个归档 + SHA256SUMS 齐全、无杂项、校验和与内容一致。
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          expected=(
+            "rswfn-${version}-aarch64-unknown-linux-gnu.tar.gz"
+            "rswfn-${version}-x86_64-pc-windows-msvc.zip"
+            "rswfn-${version}-x86_64-unknown-linux-gnu.tar.gz"
+            "rswfn-${version}-x86_64-unknown-linux-musl.tar.gz"
+          )
+
+          fail=0
+          for f in "${expected[@]}"; do
+            if [ ! -f "dist/${f}" ]; then
+              echo "::error::dist 中缺少发布资产 ${f}"
+              fail=1
+            fi
+          done
+          if [ ! -f dist/SHA256SUMS ]; then
+            echo "::error::dist 中缺少 SHA256SUMS"
+            fail=1
+          fi
+          if [ "${fail}" -ne 0 ]; then
+            ls -l dist
+            exit 1
+          fi
+
+          # dist 里只允许 4 个归档 + SHA256SUMS（防止 .sha256 碎片等杂项被上传）
+          file_count="$(find dist -maxdepth 1 -type f | wc -l)"
+          if [ "${file_count}" -ne 5 ]; then
+            echo "::error::dist 应正好包含 4 个归档 + SHA256SUMS（5 个文件），实际 ${file_count} 个"
+            ls -l dist
+            exit 1
+          fi
+
+          # SHA256SUMS 列出的文件名必须与预期资产完全一致
+          awk '{print $2}' dist/SHA256SUMS | sort > /tmp/sums-files.txt
+          printf '%s\n' "${expected[@]}" | sort > /tmp/expected-files.txt
+          if ! diff -u /tmp/expected-files.txt /tmp/sums-files.txt; then
+            echo "::error::SHA256SUMS 中的文件名与预期资产不一致"
+            exit 1
+          fi
+
+          # 校验和必须与归档内容一致
+          ( cd dist && sha256sum -c SHA256SUMS )
 
       - name: Create GitHub release
         env:

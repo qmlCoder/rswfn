@@ -1,0 +1,12 @@
+# 统一换行符，避免 Windows 上 core.autocrlf=true 把 shell 脚本提交成 CRLF
+* text=auto
+
+*.sh   text eol=lf
+*.rs   text eol=lf
+*.toml text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+
+# PowerShell 脚本统一按 CRLF 检出（PS 5.1 对 LF 也可用，这里只是随平台习惯）
+*.ps1  text eol=crlf

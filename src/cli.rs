@@ -17,7 +17,11 @@ use crate::writer::{CubWriter, DmoWriter, GjfWriter, Writer, XyzWriter};
 use crate::{qmcalc, utils};
 
 #[derive(Parser, Debug)]
-#[command(author = "Xiaofei Shi", about = "Weave Function Analysis Tool")]
+#[command(
+    author = "Xiaofei Shi",
+    version,
+    about = "Weave Function Analysis Tool"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
