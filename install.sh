@@ -14,6 +14,7 @@
 set -u
 
 DEFAULT_BASE_URL='https://github.com/qmlCoder/rswfn/releases/download'
+LATEST_PAGE_URL='https://github.com/qmlCoder/rswfn/releases/latest'
 LATEST_API_URL='https://api.github.com/repos/qmlCoder/rswfn/releases/latest'
 
 VERSION=''
@@ -351,6 +352,29 @@ detect_target() {
 # ---------------------------------------------------------------------------
 # Latest version from the GitHub releases API (only when not specified).
 # ---------------------------------------------------------------------------
+resolve_latest_from_redirect() {
+    # Resolve the latest tag from the releases/latest 301/302 redirect: this does
+    # not consume the GitHub API quota (the anonymous API allows only 60 requests
+    # per IP per hour, which CI runners and corporate NATs hit easily with 403).
+    latest_url=''
+    if command -v curl >/dev/null 2>&1; then
+        latest_url=$(curl -fsSL -o /dev/null -w '%{url_effective}' "${LATEST_PAGE_URL}" 2>/dev/null) || latest_url=''
+    fi
+    if [ -z "${latest_url}" ] && command -v wget >/dev/null 2>&1; then
+        latest_url=$(wget -q -S --max-redirect=0 -O /dev/null "${LATEST_PAGE_URL}" 2>&1 \
+            | sed -n 's/^[[:space:]]*[Ll]ocation:[[:space:]]*//p' | tr -d '\r' | head -n 1) || latest_url=''
+    fi
+    case "${latest_url}" in
+        */releases/tag/*)
+            tag_from_redirect="${latest_url##*/releases/tag/}"
+            tag_from_redirect="${tag_from_redirect%%[?#]*}"
+            printf '%s' "${tag_from_redirect}"
+            ;;
+        *)
+            : ;;
+    esac
+}
+
 resolve_version() {
     if [ -n "${VERSION}" ]; then
         normalize_version
@@ -359,17 +383,22 @@ resolve_version() {
     if [ "${BASE_MODE}" = 'local' ]; then
         die "no version specified: pass --version x.y.z when using a local base directory '${BASE_PATH}' (layout: <base>/v<version>/<asset>)"
     fi
-    latest_json="${WORK_DIR}/latest-release.json"
     say 'resolving the latest rswfn release from GitHub'
-    if ! fetch_url "${LATEST_API_URL}" "${latest_json}"; then
-        die "could not query the latest release from ${LATEST_API_URL}: pass --version x.y.z explicitly (for example: sh install.sh --version 0.1.0)"
-    fi
-    tag_name=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${latest_json}" | head -n 1)
+    tag_name=$(resolve_latest_from_redirect)
     if [ -z "${tag_name}" ]; then
-        die "could not parse 'tag_name' from the GitHub API response: pass --version x.y.z explicitly"
+        warn 'could not resolve the latest tag from the releases page redirect; falling back to the GitHub API'
+        latest_json="${WORK_DIR}/latest-release.json"
+        if ! fetch_url "${LATEST_API_URL}" "${latest_json}"; then
+            die "could not determine the latest release (network unavailable, or the anonymous GitHub API rate limit was hit): pass --version x.y.z explicitly (for example: sh install.sh --version 0.1.1)"
+        fi
+        tag_name=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${latest_json}" | head -n 1)
+        if [ -z "${tag_name}" ]; then
+            die "could not parse 'tag_name' from the GitHub API response: pass --version x.y.z explicitly"
+        fi
     fi
     VERSION="${tag_name}"
     normalize_version
+    say "using release v${VERSION}"
 }
 
 # ---------------------------------------------------------------------------
@@ -397,8 +426,8 @@ verify_archive() {
     fi
     sums_lf="${WORK_DIR}/SHA256SUMS.lf"
     tr -d '\r' < "${sums_file}" > "${sums_lf}" 2>/dev/null || cp "${sums_file}" "${sums_lf}"
-    # SHA256SUMS 每行是 "<hash>  <file>"；少数工具链（如 MSYS/Cygwin 的
-    # sha256sum 二进制模式）会写成 "<hash> *<file>"，两种都要能识别。
+    # SHA256SUMS lines are "<hash>  <file>"; a few toolchains (e.g. MSYS/Cygwin
+    # sha256sum in binary mode) write "<hash> *<file>". Accept both forms.
     expected_hash=$(awk -v name="${ASSET}" '{ n = $2; sub(/^\*/, "", n); if (n == name) { print $1; exit } }' "${sums_lf}" 2>/dev/null)
     if [ -z "${expected_hash}" ]; then
         die "SHA256SUMS does not contain an entry for '${ASSET}': refusing to install an unverified archive (use --skip-verify only if you trust the download)"

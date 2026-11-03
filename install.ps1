@@ -238,6 +238,40 @@ function Join-ReleasePath {
     return $current
 }
 
+function Get-LocationFromResponse {
+    param($Response)
+    if ($null -eq $Response) { return $null }
+    try { if ($Response.Headers -and $Response.Headers.Location) { return "$($Response.Headers.Location)" } } catch { }
+    try { if ($Response.Headers -and $Response.Headers['Location']) { return "$($Response.Headers['Location'])" } } catch { }
+    try { if ($Response.ResponseUri) { return "$($Response.ResponseUri)" } } catch { }
+    try { if ($Response.RequestMessage -and $Response.RequestMessage.RequestUri) { return "$($Response.RequestMessage.RequestUri)" } } catch { }
+    return $null
+}
+
+function Get-LatestVersion {
+    # Resolve releases/latest via its HTTP redirect first: that does not consume
+    # the GitHub API quota (the anonymous API allows only 60 requests per IP per
+    # hour, which CI runners and corporate NATs hit easily with a 403).
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/qmlCoder/rswfn/releases/latest' -MaximumRedirection 0 -ErrorAction Stop
+        $location = Get-LocationFromResponse -Response $response
+    } catch {
+        $location = Get-LocationFromResponse -Response $_.Exception.Response
+    }
+    if ($location -and ("$location" -match '/releases/tag/([^/?#]+)')) {
+        return $Matches[1]
+    }
+
+    Write-Step 'could not resolve the latest tag from the releases page redirect; falling back to the GitHub API'
+    $apiHeaders = @{
+        'User-Agent' = 'rswfn-installer'
+        'Accept'     = 'application/vnd.github+json'
+    }
+    $response = Invoke-WebRequest -UseBasicParsing -Uri 'https://api.github.com/repos/qmlCoder/rswfn/releases/latest' -Headers $apiHeaders -ErrorAction Stop
+    $releaseInfo = $response.Content | ConvertFrom-Json
+    return $releaseInfo.tag_name
+}
+
 # ---------------------------------------------------------------------------
 # The whole installer lives in this function so that preference variables and
 # helper state never leak into the caller's session (irm | iex).
@@ -352,18 +386,12 @@ function Install-Rswfn {
         }
         Write-Step 'resolving the latest rswfn release from GitHub'
         try {
-            $apiHeaders = @{
-                'User-Agent' = 'rswfn-installer'
-                'Accept'     = 'application/vnd.github+json'
-            }
-            $response = Invoke-WebRequest -UseBasicParsing -Uri 'https://api.github.com/repos/qmlCoder/rswfn/releases/latest' -Headers $apiHeaders -ErrorAction Stop
-            $releaseInfo = $response.Content | ConvertFrom-Json
-            $tagName = $releaseInfo.tag_name
+            $tagName = Get-LatestVersion
         } catch {
-            Fail "could not query the latest release from GitHub: pass -Version x.y.z explicitly (for example: .\install.ps1 -Version 0.1.0). Details: $($_.Exception.Message)"
+            Fail "could not determine the latest release (network unavailable, or the anonymous GitHub API rate limit was hit): pass -Version x.y.z explicitly (for example: .\install.ps1 -Version 0.1.1). Details: $($_.Exception.Message)"
         }
         if ([string]::IsNullOrWhiteSpace($tagName)) {
-            Fail "could not parse 'tag_name' from the GitHub API response: pass -Version x.y.z explicitly"
+            Fail "could not parse the latest version from the GitHub response: pass -Version x.y.z explicitly"
         }
         $Version = "$tagName"
     }
@@ -374,6 +402,7 @@ function Install-Rswfn {
     if ($Version -notmatch '^[0-9A-Za-z._-]+$') {
         Fail "invalid version '$Version': only characters [0-9A-Za-z._-] are allowed"
     }
+    Write-Step "using release v$Version"
 
     # ------------------------------------------------------------------
     # Target triple.

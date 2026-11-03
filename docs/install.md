@@ -140,8 +140,10 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 | 卸载 | `--uninstall` | `-Uninstall` | — |
 | 不写 PATH | 不适用（sh 从不修改 rc 文件） | `-NoPath` | — |
 
-- 版本号可以省略。省略时脚本查询 GitHub API 的最新 release；查询失败且未显式指定
-  版本时会报错，并提示用 `--version x.y.z` / `-Version x.y.z`。
+- 版本号可以省略。省略时脚本先通过 GitHub 的 `releases/latest` HTTP 重定向解析最新版本
+  （不消耗 GitHub API 配额，CI/公司共享出口也不会被匿名 API 限流），失败再回退到
+  GitHub API；仍然失败且未显式指定版本时会报错，并提示用 `--version x.y.z` /
+  `-Version x.y.z`。
 - `--target` / `-Target` 用于强制指定目标平台，如 `x86_64-unknown-linux-gnu`、
   `x86_64-unknown-linux-musl`。
 - 退出码：成功为 `0`，失败为非 `0`（`install.sh` 的用法错误为 `2`；`install.ps1`
@@ -351,9 +353,9 @@ Windows：默认写入**用户级** PATH，需要重开终端才会生效；不�
 
 ### 安装脚本提示无法确定版本
 
-脚本会查询 GitHub API 的最新 release。网络受限或仓库还没有任何 release 时查询会失败，
-此时需要显式指定版本：`--version 0.1.1` / `-Version 0.1.1`。在首个 release 发布之前，
-请使用 `cargo install rswfn`。
+脚本先通过 `releases/latest` 重定向解析最新版本，失败时回退到 GitHub API。
+网络受限（或匿名 GitHub API 被限流）且仓库没有任何 release 时会失败，此时需要显式
+指定版本：`--version 0.1.1` / `-Version 0.1.1`（离线/镜像场景也必须显式指定）。
 
 ### 想先检查脚本再运行
 
