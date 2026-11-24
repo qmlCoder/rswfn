@@ -7,7 +7,6 @@ use crate::march;
 
 pub mod density;
 pub mod dftgrid;
-pub mod potential;
 pub mod topolog;
 pub mod wfnfunc;
 

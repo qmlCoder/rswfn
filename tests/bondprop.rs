@@ -7,7 +7,7 @@ use utils::allclose;
 #[test]
 /// 测试含金属环的log文件计算的mayer键级是否正确
 fn test1() {
-    let path = r"E:\code\rswfn\moles\dui-Nb.log_scan_14.log";
+    let path = "moles/dui-Nb.log_scan_14.log";
     let mole = Mole::from_file(&path);
     let caler = bondprop::order::Calculator::new(&mole);
     let omat = caler.mayer();

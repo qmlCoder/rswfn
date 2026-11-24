@@ -274,7 +274,7 @@ impl Atoms {
         let neles = [nela, nelb];
         let mut dists = Array2::zeros((natm, natm));
         let mut bonds = vec![];
-        for i in 0..natm - 1 {
+        for i in 0..natm.saturating_sub(1) {
             for j in i + 1..natm {
                 let dist = maths::calc_dist(&xyzs[i], &xyzs[j]);
                 dists[(i, j)] = dist;
@@ -342,7 +342,7 @@ impl Atoms {
     pub fn dmat(&self) -> Array2<f64> {
         let natm = self.len();
         let mut dmat = Array2::zeros((natm, natm));
-        for i in 0..natm - 1 {
+        for i in 0..natm.saturating_sub(1) {
             for j in i + 1..natm {
                 dmat[(i, j)] = self.dist(i, j);
                 dmat[(j, i)] = dmat[(i, j)];

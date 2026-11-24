@@ -30,6 +30,10 @@ It can be used both as a **library** and as a **CLI / TUI** application.
   sign(λ₂)ρ, RDG, IRI, ELF / LOL, kinetic-energy densities, electrostatic
   potential, information entropy, Fukui-function grids, and topology search
   for critical points.
+- **Quantum-chemical calculations**: closed-shell Hartree-Fock (RHF) and
+  Kohn-Sham DFT from a geometry plus basis set. The DFT functional is
+  selectable (B3LYP, PBE0, PBE, BLYP, BP86, SVWN5), and the resulting
+  wavefunction is exportable as `.fch`.
 - **Integrals** over Gaussian basis sets: overlap, kinetic, nuclear-attraction
   and two-electron repulsion.
 - **Writers** for cube (`.cub`), `.xyz`, `.gjf`, `.fch`, `.mol` / `.dmo` and
@@ -166,7 +170,17 @@ rswfn orbtprop composition 21 C6H6.fch
 
 # Export a real-space function on a grid to a cube file
 rswfn gridprop density C6H6.fch rho.cub --func density --step 0.2
+# Electrostatic potential in a.u. (analytic Gaussian integrals, Multiwfn convention)
 rswfn gridprop potential C6H6.fch esp.cub
+
+# Closed-shell Hartree-Fock from a file that carries geometry + basis set
+rswfn qmcal hf -i C6H6.fch -o C6H6_hf.fch
+
+# Kohn-Sham DFT on the same kind of input (B3LYP by default)
+rswfn qmcal dft -i C6H6.fch -o C6H6_b3lyp.fch
+
+# Pick another exchange-correlation functional
+rswfn qmcal dft -i C6H6.fch --func pbe0 -o C6H6_pbe0.fch
 
 # Extract coordinates, convert formats, extract supporting information
 rswfn coord C6H6.fch coords.xyz
@@ -194,12 +208,25 @@ fn main() {
 
 ## Feature flags
 
-Both features are **disabled by default** and link against locally built native
-libraries, so they are not usable from the published crate:
+- `use-rsint` — use the pure-Rust `rsint` crate (a transliteration of libcint)
+  for integrals. Enabled by default and builds on stable Rust.
+- `use-rsbase` — resolve basis sets through the [`rsbse`](https://crates.io/crates/rsbse)
+  Basis Set Exchange database instead of the embedded `src/rsbse/txts` files
+  (`cargo build --features use-rsbase`). The data is not bundled with the crate:
+  install it with `bse fetch-data` (from `cargo install rsbse`), or point
+  `BSE_DATA_DIR` at an existing data directory.
+- `use-rsxcs` — use the external pure-Rust `rsxcs` 0.2 crate (a Rust port of a
+  subset of libxc 7.1.2) for exchange–correlation functionals. Enabled by
+  default; disable it (for example with `--no-default-features`) to use the
+  built-in DFTxclib translation in `src/rsxcs/DFTxclib.rs` instead.
 
-- `use-cint` — use the external `libcint` library for integrals.
-- `use-func` — use the external `libxc` library for exchange–correlation
-  functionals.
+All three backends are selected independently. With `use-rsint`, `use-rsbase`
+and `use-rsxcs` disabled, `rswfn` builds entirely from its in-repo
+implementations:
+
+```sh
+cargo build --no-default-features
+```
 
 ## License
 
@@ -220,8 +247,10 @@ be dual licensed as above, without any additional terms or conditions.
 Gaussian、ORCA、Molden 等程序的输出文件，进行各类波函数分析，包括：原子电荷
 布居（Mulliken / Löwdin / Hirshfeld）、π 电子布居（POCV / MOCV）、福井函数与
 双描述符、自由价、键级（Mayer / Wiberg）及其分解、芳香性、轨道成分分析，以及
-实空间函数（密度、静电势、ELF、RDG 等）的格点计算与导出。既可以作为库使用，
-也可以直接作为命令行 / TUI 程序运行。
+实空间函数（密度、静电势、ELF、RDG 等）的格点计算与导出，以及基于坐标与基
+组的闭壳层 Hartree-Fock（RHF）与 Kohn-Sham DFT 计算（B3LYP、PBE0、PBE、
+BLYP、BP86、SVWN5 可选）。既可以作为库使用，也可以直接作为命令行 / TUI 程序
+运行。
 
 ### 安装
 
@@ -236,9 +265,8 @@ Gaussian、ORCA、Molden 等程序的输出文件，进行各类波函数分析�
 安装动态链接的 gnu 版本（性能略好，但同样要求 glibc ≥ 2.39）。Windows 产物使用静态
 CRT，是单个 `.exe`，不依赖 `vcruntime140.dll`。
 
-注意：0.1.0 已发布到 crates.io，但仓库尚未创建首个 GitHub Release，因此两条一行命令
-要等首个 release（v0.1.1 或后续版本）发布后才可用；在此之前请使用
-`cargo install rswfn`。Windows 目前只提供 x86_64 产物（ARM64 暂不支持），默认安装到
+注意：0.1.0 已发布到 crates.io，预编译二进制来自 GitHub Releases（首个 release 为
+`v0.1.1`）。Windows 目前只提供 x86_64 产物（ARM64 暂不支持），默认安装到
 `%LOCALAPPDATA%\Programs\rswfn` 并写入用户 PATH，需重开终端生效（`-NoPath` 可跳过）。
 Linux 默认安装到 `~/.local/bin`，脚本不会修改 shell 配置文件，需要自行把该目录加入
 PATH。指定版本、自定义目录、离线安装、卸载等用法详见

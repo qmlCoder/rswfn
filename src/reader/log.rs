@@ -1,5 +1,6 @@
 // 读取log文件的脚本
 
+use super::gjf::{GauJob, parse_job};
 use crate::base::{Atoms, Basis, Coefs, Shl};
 use crate::datas::consts::BOHR;
 use crate::maths;
@@ -141,6 +142,13 @@ impl LogReader {
             }
             job
         })
+    }
+
+    /// 解析作业关键词，得到任务类型、泛函与基组
+    ///
+    /// 见 [`parse_job`]；泛函/基组的识别由 `rsxcs` / `rsbse` 支持名单完成。
+    pub fn read_gau_job(&self) -> Option<GauJob> {
+        parse_job(self.read_job())
     }
 
     /// 读取系数矩阵
@@ -629,6 +637,13 @@ impl LogReader {
         }
         Some(nics)
     }
+
+    // 读取计算是否正常结束
+    pub fn read_normalend(&self) -> bool {
+        let nline = self.lines.len();
+        let line = &self.lines[nline - 1];
+        line.contains("Normal termination")
+    }
 }
 
 impl Reader for LogReader {
@@ -653,19 +668,6 @@ impl Reader for LogReader {
     }
 
     fn get_basis(&self) -> Option<Basis> {
-        let s1 = Regex::new(r"^ +(\d+) +\d+$").expect("reg new error");
-        let s2 = Regex::new(r" ([SPDFG]+) +(\d+) \d.\d{2} +\d.\d{12}").expect("reg new error");
-        let s3 = Regex::new(r"^ +(( +-?\d.\d{10}D[+-]\d{2}){2,3})").expect("reg new error");
-        let mut ang_map: HashMap<char, usize> = HashMap::new();
-        ang_map.insert('S', 0);
-        ang_map.insert('P', 1);
-        ang_map.insert('D', 2);
-        ang_map.insert('F', 3);
-        ang_map.insert('G', 4);
-        let mut datas = Vec::new();
-        let mut angs: Vec<usize> = Vec::new();
-        let mut shl: usize = 0;
-        let mut atm: usize = 0;
         let title_number = match self.marks.get("basis") {
             Some(number) => *number,
             None => {
@@ -673,47 +675,7 @@ impl Reader for LogReader {
                 return None;
             }
         };
-        for line in self.lines.iter().skip(title_number as usize + 1) {
-            if s1.is_match(&line) {
-                let caps = s1.captures(&line).expect("cap error");
-                atm = caps[1].parse::<usize>().expect("usize解析失败");
-            } else if s2.is_match(&line) {
-                let caps = s2.captures(&line).expect("cap error");
-                let shl_sym: String = caps[1].to_string();
-                angs = shl_sym
-                    .chars()
-                    .map(|s| *ang_map.get(&s).expect("未知角动量符号"))
-                    .collect();
-                shl += 1;
-            } else if s3.is_match(&line) {
-                let caps = s3.captures(&line).expect("cap error");
-                let nums: Vec<f64> = caps[1]
-                    .split_whitespace()
-                    .map(|each| {
-                        let coef = each.replace("D", "e");
-                        coef.parse::<f64>().expect("f64解析失败")
-                    })
-                    .collect();
-                if angs.len() == 1 {
-                    let alp = nums[0];
-                    let coe = nums[1];
-                    datas.push((atm - 1, shl - 1, angs[0], alp, coe));
-                }
-                if angs.len() == 2 {
-                    let alp = nums[0];
-                    let coe1 = nums[1];
-                    let coe2 = nums[2];
-                    datas.push((atm - 1, shl - 1, angs[0], alp, coe1));
-                    datas.push((atm - 1, shl - 1, angs[1], alp, coe2));
-                }
-            } else if line == " ****" {
-                shl = 0;
-                continue;
-            } else {
-                break;
-            }
-        }
-        datas.sort_by_key(|data| (data.0, data.1, data.2));
+        let datas = read_basis(&self.lines[title_number as usize + 1..])?;
         let coefs = self.read_coefs();
         let forms = if let Some(coefs) = coefs {
             let (ato_atms, ato_shls, ato_syms, obt_engs, obt_occs, cmat) = coefs;
@@ -748,5 +710,83 @@ impl Reader for LogReader {
         } else {
             None
         }
+    }
+}
+
+// atm, shl, ang, alp, coe
+pub fn read_basis(lines: &[String]) -> Option<Vec<(usize, usize, usize, f64, f64)>> {
+    let s1 = Regex::new(r"^ +(\d+) +\d+$").expect("reg new error");
+    let s2 = Regex::new(r" ([SPDFG]+) +(\d+) \d.\d{2} +\d.\d{12}").expect("reg new error");
+    let s3 = Regex::new(r"^ +(( +-?\d.\d{10}D[+-]\d{2}){2,3})").expect("reg new error");
+    let mut ang_map: HashMap<char, usize> = HashMap::new();
+    ang_map.insert('S', 0);
+    ang_map.insert('P', 1);
+    ang_map.insert('D', 2);
+    ang_map.insert('F', 3);
+    ang_map.insert('G', 4);
+    let mut datas = Vec::new();
+    let mut angs: Vec<usize> = Vec::new();
+    let mut shl: usize = 0;
+    let mut atm: usize = 0;
+    for line in lines.iter() {
+        if s1.is_match(&line) {
+            let caps = s1.captures(&line).expect("cap error");
+            atm = caps[1].parse::<usize>().expect("usize解析失败");
+        } else if s2.is_match(&line) {
+            let caps = s2.captures(&line).expect("cap error");
+            let shl_sym: String = caps[1].to_string();
+            angs = shl_sym
+                .chars()
+                .map(|s| *ang_map.get(&s).expect("未知角动量符号"))
+                .collect();
+            shl += 1;
+        } else if s3.is_match(&line) {
+            let caps = s3.captures(&line).expect("cap error");
+            let nums: Vec<f64> = caps[1]
+                .split_whitespace()
+                .map(|each| {
+                    let coef = each.replace("D", "e");
+                    coef.parse::<f64>().expect("f64解析失败")
+                })
+                .collect();
+            if angs.len() == 1 {
+                let alp = nums[0];
+                let coe = nums[1];
+                datas.push((atm - 1, shl - 1, angs[0], alp, coe));
+            }
+            if angs.len() == 2 {
+                let alp = nums[0];
+                let coe1 = nums[1];
+                let coe2 = nums[2];
+                datas.push((atm - 1, shl - 1, angs[0], alp, coe1));
+                datas.push((atm - 1, shl - 1, angs[1], alp, coe2));
+            }
+        } else if line == " ****" {
+            shl = 0;
+            continue;
+        } else {
+            break;
+        }
+    }
+    datas.sort_by_key(|data| (data.0, data.1, data.2));
+    Some(datas)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LogReader;
+
+    /// 从示例 log 文件解析作业关键词（文件不存在时跳过）
+    #[test]
+    fn read_gau_job_from_log() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/moles/C2H4.out");
+        if !std::path::Path::new(path).is_file() {
+            return;
+        }
+        let reader = LogReader::new(path);
+        let job = reader.read_gau_job().expect("应能解析作业关键词");
+        assert_eq!(job.job_type, "opt");
+        assert_eq!(job.functional.as_deref(), Some("b3lyp"));
+        assert_eq!(job.basis_set.as_deref(), Some("6-31g(d)"));
     }
 }

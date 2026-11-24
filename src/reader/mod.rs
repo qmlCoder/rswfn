@@ -6,6 +6,7 @@ mod gjf;
 mod inp;
 mod log;
 mod mde;
+mod mfn;
 mod mol;
 mod non;
 mod out;
@@ -22,10 +23,11 @@ use crate::maths;
 pub use cub::CubReader;
 pub use dmo::DmoReader;
 pub use fch::FchReader;
-pub use gjf::GjfReader;
+pub use gjf::{GauJob, GjfReader, parse_job};
 pub use inp::InpReader;
 pub use log::LogReader;
 pub use mde::MdeReader;
+pub use mfn::MfnReader;
 pub use mol::MolReader;
 pub use non::NonReader;
 pub use out::OutReader;
@@ -99,6 +101,7 @@ pub enum FileType {
     Sdf,
     Xyz,
     Mde, // molden文件
+    Mfn, // Multiwfn波函数文件
     Dmo, // 自定义的包含原子局部坐标系的文件
     Inp, // Orca输入文件
     Cub, // 格点文件
@@ -131,6 +134,9 @@ pub fn get_fileType(path: &str) -> FileType {
     }
     if path.ends_with(".molden") {
         return FileType::Mde;
+    }
+    if path.ends_with(".mwfn") {
+        return FileType::Mfn;
     }
     if path.ends_with(".dmi") || path.ends_with(".dmo") {
         return FileType::Dmo;
@@ -173,7 +179,7 @@ pub fn shl_forms(ato_atms: &Vec<usize>, ato_shls: &Vec<usize>, ato_syms: &Vec<St
 }
 
 use crate::base::Shl;
-pub type BasData = (usize, usize, usize, f64, f64);
+pub type BasData = (usize, usize, usize, f64, f64); // atm, shl, ang, alp, coe
 /// 从原始基组数据构建Basis对象
 pub fn shl_basis(datas: &Vec<BasData>, forms: &Vec<String>) -> Basis {
     let mut keys = vec![];
@@ -199,7 +205,7 @@ pub fn shl_basis(datas: &Vec<BasData>, forms: &Vec<String>) -> Basis {
         shls[nshl - 1].alps.push(alp);
         shls[nshl - 1].coes.push(coe);
     }
-    Basis::new(shls)
+    Basis::new(shls, None)
 }
 
 /// 振动频率信息

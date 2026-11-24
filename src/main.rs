@@ -1,13 +1,14 @@
 mod base;
 mod datas;
 mod editor;
-mod funcs;
-mod integ;
 mod loger;
 mod march;
 mod maths;
-mod qmcalc;
+mod qmcal;
 mod reader;
+mod rsbse;
+mod rsint;
+mod rsxcs;
 mod tools;
 mod utils;
 mod writer;

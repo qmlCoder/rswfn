@@ -6,7 +6,7 @@ use crate::{
     },
     maths,
 };
-use crate::{integ, utils};
+use crate::{rsint, utils};
 use core::fmt;
 use ndarray::{Array2, ArrayView2, Axis, concatenate, s};
 use std::fmt::Debug;

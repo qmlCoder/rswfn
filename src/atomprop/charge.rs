@@ -8,7 +8,7 @@ use rayon::prelude::*;
 use crate::atomprop;
 use crate::datas::rdens;
 use crate::gridprop;
-use crate::integ;
+use crate::rsint;
 
 use crate::base::{Mole, Stm, Vec3};
 use crate::maths;

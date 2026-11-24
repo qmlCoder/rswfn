@@ -2,26 +2,24 @@ use clap::{Parser, Subcommand, command};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::{PathBuf, absolute};
+use std::time::{Duration, Instant};
 
 use crate::atomprop;
 use crate::atomprop::activity;
-use crate::base::{Mole, Vec3};
+use crate::base::{Basis, Coefs, Mole, Vec3};
 use crate::bondprop;
 use crate::dev;
-use crate::gridprop::{CubeGrid, density, potential, topolog};
+use crate::gridprop::{CubeGrid, density, topolog};
 use crate::moleprop;
 use crate::orbtprop;
-use crate::reader::{FchReader, GjfReader, LogReader};
+use crate::reader::{FchReader, GjfReader, LogReader, MfnReader};
+use crate::rsxcs::XcFunc;
 use crate::tools::log::Tool;
-use crate::writer::{CubWriter, DmoWriter, GjfWriter, Writer, XyzWriter};
-use crate::{qmcalc, utils};
+use crate::writer::{CubWriter, DmoWriter, FchWriter, GjfWriter, Writer, XyzWriter};
+use crate::{qmcal, rsbse, utils};
 
 #[derive(Parser, Debug)]
-#[command(
-    author = "Xiaofei Shi",
-    version,
-    about = "Weave Function Analysis Tool"
-)]
+#[command(author = "Xiaofei Shi", version, about = "Weave Function Analysis Tool")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -60,6 +58,10 @@ enum Commands {
     Trans { input: PathBuf, output: PathBuf },
     /// DHMO 计算
     Dmo { input: PathBuf, output: Option<PathBuf> },
+
+    /// 量子化学计算（根据坐标与基组求解波函数）
+    #[command(subcommand)]
+    Qmcal(QmcalCmds),
 
     /// 提取支持信息（Supporting Information），汇总能量、频率与结构
     Si {
@@ -257,6 +259,42 @@ enum OrbtpropCmds {
     },
 }
 
+// ===== qmcal 子命令 =====
+
+#[derive(Subcommand, Debug)]
+enum QmcalCmds {
+    /// 闭壳层 Hartree-Fock（RHF）计算
+    Hf {
+        /// 输入文件路径（需包含坐标；基组可由文件提供，或用 -b 指定）
+        #[arg(short, long)]
+        input: PathBuf,
+        /// 基组名（使用程序提供的基组数据，如 6-31G(d,p)、def2-SVP），指定后忽略文件中的基组
+        #[arg(short = 'b', long = "basis")]
+        basis: Option<String>,
+        /// 输出 .fch 波函数文件路径（可选）
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// 密度泛函计算（默认 B3LYP，局部相关用 VWN3，与 Gaussian 一致）
+    ///
+    /// 闭壳层体系用 RKS，开壳层体系（α ≠ β 电子数）自动切换到 UKS。
+    Dft {
+        /// 输入文件路径（需包含坐标；基组可由文件提供，或用 -b 指定）
+        #[arg(short, long)]
+        input: PathBuf,
+        /// 基组名（使用程序提供的基组数据，如 6-31G(d,p)、def2-SVP），指定后忽略文件中的基组
+        #[arg(short = 'b', long = "basis")]
+        basis: Option<String>,
+        /// 交换相关泛函：内置名（b3lyp/pbe0/pbe/blyp/bp86/svwn5，lda 为 svwn5 别名）
+        /// 或外部 rsxcs 支持的 libxc 短名（如 gga_x_pw91，需 use-rsxcs 特性）
+        #[arg(short = 'f', long = "func", default_value = "b3lyp")]
+        func: String,
+        /// 输出 .fch 波函数文件路径（可选）
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+}
+
 // ===== gridprop 子命令 =====
 
 #[derive(Subcommand, Debug)]
@@ -282,7 +320,7 @@ enum GridpropCmds {
         #[arg(long = "mole-p")]
         mole_p: Option<PathBuf>,
     },
-    /// 静电势，输出 cub 文件
+    /// 静电势（原子单位，核项 + 电子项），输出 cub 文件
     Potential {
         /// 波函数文件路径（支持 .log/.out/.fch/.fchk）
         filepath: PathBuf,
@@ -313,7 +351,8 @@ fn load_mole(filepath: &PathBuf) -> Mole {
         "log" | "out" => Mole::from_read(&LogReader::new(path_str)),
         "gjf" => Mole::from_read(&GjfReader::new(path_str)),
         "fch" | "fchk" => Mole::from_read(&FchReader::new(path_str)),
-        _ => panic!("不支持的波函数文件类型: {ftype}，支持: log/out/gjf/fch/fchk"),
+        "mwfn" => Mole::from_read(&MfnReader::new(path_str)),
+        _ => panic!("不支持的波函数文件类型: {ftype}，支持: log/out/gjf/fch/fchk/mwfn"),
     }
 }
 
@@ -622,6 +661,110 @@ fn density_field<'a>(
     }
 }
 
+// ===== qmcal 共用工具 =====
+
+/// 读取 qmcal 的输入文件，并按需使用程序提供的基组数据覆盖文件中的基组
+fn load_calc_mole(input: &PathBuf, basis: Option<&str>) -> (Mole, String) {
+    let from = absolute(input).expect("获取输入文件绝对路径失败");
+    let from_path = from.to_str().expect("路径转字符串失败").to_owned();
+    let mut mole = Mole::from_file(&from_path);
+    match basis {
+        Some(name) => {
+            let basis = rsbse::from_name(name, &mole.atoms).unwrap_or_else(|| panic!("不支持的基组: {name}"));
+            mole.basis = Some(basis);
+            // 基组已更换, 文件中原有的轨道系数不再对应
+            mole.coefs = None;
+        }
+        None => {
+            if mole.basis.is_none() {
+                panic!("输入文件不含基组信息，请提供 .fch/.fchk、.log/.out 等包含基组的文件，或用 -b 指定基组");
+            }
+        }
+    }
+    (mole, from_path)
+}
+
+/// 打印 qmcal 的公共信息头
+fn print_calc_header(method: &str, path: &str, mole: &Mole) {
+    let [nela, nelb] = mole.atoms.neles;
+    let form = mole.basis().int_form();
+    println!("{method} 计算");
+    println!("{:-<72}", "");
+    println!("输入文件: {path}");
+    println!(
+        "分子式  : {}，电子数 {}（α {nela}，β {nelb}）",
+        mole.formula(),
+        nela + nelb
+    );
+    println!("基函数数: {}", mole.basis().shls.nato(form));
+    println!("积分形式: {form}");
+    println!("{:-<72}", "");
+}
+
+/// 打印 SCF 收敛情况
+fn print_calc_status(converged: bool, niter: usize, delta_eng: f64) {
+    println!("{:-<72}", "");
+    println!(
+        "SCF 状态 : {}（迭代 {} 次，ΔE = {:.2e}）",
+        if converged { "收敛" } else { "未收敛" },
+        niter,
+        delta_eng
+    );
+    if !converged {
+        eprintln!("警告: SCF 在 {niter} 次迭代后仍未收敛，结果可能不可靠");
+    }
+}
+
+/// 将耗时格式化为秒（保留三位小数，右对齐）
+fn fmt_duration(time: Duration) -> String {
+    format!("{:>9.3} s", time.as_secs_f64())
+}
+
+/// 打印各阶段耗时与总耗时
+#[allow(clippy::too_many_arguments)]
+fn print_calc_timing(
+    t_load: Duration,
+    t_grid: Option<Duration>,
+    t_int1e: Duration,
+    t_int2e: Duration,
+    t_scf: Duration,
+    t_export: Duration,
+    t_total: Duration,
+) {
+    println!("{:-<72}", "");
+    println!("耗时统计");
+    println!("读取输入    : {}", fmt_duration(t_load));
+    if let Some(t_grid) = t_grid {
+        println!("格点初始化  : {}", fmt_duration(t_grid));
+    }
+    println!("单电子积分  : {}", fmt_duration(t_int1e));
+    println!("双电子积分  : {}", fmt_duration(t_int2e));
+    println!("SCF 迭代    : {}", fmt_duration(t_scf));
+    println!("导出波函数  : {}", fmt_duration(t_export));
+    println!("总耗时      : {}", fmt_duration(t_total));
+}
+
+/// 将计算得到的波函数导出为 .fch 文件
+fn write_calc_fch(mole: &Mole, output: &Option<PathBuf>, basis: Basis, coefs: Coefs, energy: f64) {
+    let output = match output {
+        Some(output) => output,
+        None => return,
+    };
+    let dest = absolute(output).expect("获取输出文件绝对路径失败");
+    let dest_path = dest.to_str().expect("路径转字符串失败");
+    if utils::file_type(dest_path) != "fch" {
+        panic!("计算结果目前仅支持导出 .fch 文件，收到: {dest_path}");
+    }
+    let calc_mole = Mole::new(mole.atoms.clone(), Some(basis), Some(coefs));
+    let mut writer = FchWriter::new();
+    writer.read_mole(&calc_mole);
+    writer.charge = calc_mole.charge();
+    writer.multip = calc_mole.multip();
+    writer.energy = energy;
+    writer.save(dest_path);
+    println!("波函数已导出到: {dest_path}");
+}
+
 // ===== 主入口 =====
 
 /// CLI 模式入口函数，解析命令行参数执行对应操作
@@ -922,15 +1065,13 @@ pub fn main() {
             }
             GridpropCmds::Potential { filepath, output, step } => {
                 let mole = load_mole(filepath);
-                let caler = potential::Calculator::new(&mole);
+                let caler = density::Calculator::new(&mole);
                 let output = match output {
                     Some(path) => path.to_str().expect("输出路径转换失败").to_owned(),
                     None => default_cub_path(filepath, "potential"),
                 };
                 compute_and_write_cube(&mole, &output, *step, "Electrostatic Potential", |grid| {
-                    let nuc = caler.nuc_potential(grid);
-                    let ele = caler.ele_potential(grid);
-                    ele - nuc
+                    caler.tot_esp(grid)
                 });
             }
             GridpropCmds::Topology { func, filepath } => {
@@ -1069,9 +1210,140 @@ pub fn main() {
                 }
                 None => None,
             };
-            qmcalc::dhmo::output(&from, dest);
+            qmcal::dhmo::output(&from, dest);
             println!("DHMO计算完成 >_< ");
         }
+
+        // ==================== 量子化学计算 ====================
+        Commands::Qmcal(cmd) => match cmd {
+            QmcalCmds::Hf { input, basis, output } => {
+                let t_total = Instant::now();
+                let t_load = Instant::now();
+                let (mole, from_path) = load_calc_mole(input, basis.as_deref());
+                let t_load = t_load.elapsed();
+                let [nela, nelb] = mole.atoms.neles;
+                if nela != nelb {
+                    panic!("qmcal hf 目前仅支持闭壳层体系（α {nela} ≠ β {nelb}）；开壳层请使用 qmcal dft（UKS）");
+                }
+                print_calc_header("Hartree-Fock（RHF）", &from_path, &mole);
+
+                let caler = qmcal::hf::RHF::new(&mole);
+                let res = caler.run(None);
+                let total_eng = res.total_eng();
+
+                print_calc_status(res.converged, res.niter, res.delta_eng);
+                println!("电子能量 : {:>20.10} Hartree", res.ele_eng);
+                println!("核排斥能 : {:>20.10} Hartree", res.nuc_eng);
+                println!("总能量   : {:>20.10} Hartree", total_eng);
+
+                let t_export = Instant::now();
+                write_calc_fch(&mole, output, res.basis, res.coefs, total_eng);
+                let t_export = t_export.elapsed();
+
+                print_calc_timing(
+                    t_load,
+                    None,
+                    res.time_int1e,
+                    res.time_int2e,
+                    res.time_scf,
+                    t_export,
+                    t_total.elapsed(),
+                );
+            }
+            QmcalCmds::Dft {
+                input,
+                basis,
+                func,
+                output,
+            } => {
+                let t_total = Instant::now();
+                let t_load = Instant::now();
+                let (mole, from_path) = load_calc_mole(input, basis.as_deref());
+                let t_load = t_load.elapsed();
+                let xc = XcFunc::from_name(&func).unwrap_or_else(|| {
+                    panic!(
+                        "未知的交换相关泛函: {func}（可用: {}）",
+                        crate::rsxcs::supported_names().join(", ")
+                    )
+                });
+                let func_name = xc.name().to_uppercase();
+                let [nela, nelb] = mole.atoms.neles;
+                if nela == nelb {
+                    print_calc_header(&format!("Kohn-Sham（RKS，{func_name}）"), &from_path, &mole);
+                    println!("正在生成数值积分格点...");
+
+                    let t_grid = Instant::now();
+                    let caler = qmcal::ks::RKS::new(&mole, xc);
+                    let t_grid = t_grid.elapsed();
+                    println!(
+                        "格点参数 : {} 径向 × {} 球面（共 {} 个格点）",
+                        caler.radial,
+                        caler.angular,
+                        caler.grids.len()
+                    );
+                    println!("{:-<72}", "");
+                    let res = caler.run();
+                    let total_eng = res.total_eng();
+
+                    print_calc_status(res.converged, res.niter, res.delta_eng);
+                    println!("电子能量 : {:>20.10} Hartree", res.ele_eng);
+                    println!("交换相关能: {:>19.10} Hartree", res.xc_eng);
+                    println!("核排斥能 : {:>20.10} Hartree", res.nuc_eng);
+                    println!("总能量   : {:>20.10} Hartree", total_eng);
+
+                    let t_export = Instant::now();
+                    write_calc_fch(&mole, output, res.basis, res.coefs, total_eng);
+                    let t_export = t_export.elapsed();
+
+                    print_calc_timing(
+                        t_load,
+                        Some(t_grid),
+                        res.time_int1e,
+                        res.time_int2e,
+                        res.time_scf,
+                        t_export,
+                        t_total.elapsed(),
+                    );
+                } else {
+                    print_calc_header(&format!("Kohn-Sham（UKS，{func_name}）"), &from_path, &mole);
+                    println!("正在生成数值积分格点...");
+
+                    let t_grid = Instant::now();
+                    let caler = qmcal::ks::UKS::new(&mole, xc);
+                    let t_grid = t_grid.elapsed();
+                    println!(
+                        "格点参数 : {} 径向 × {} 球面（共 {} 个格点）",
+                        caler.base.radial,
+                        caler.base.angular,
+                        caler.base.grids.len()
+                    );
+                    println!("{:-<72}", "");
+                    let res = caler.run();
+                    let total_eng = res.total_eng();
+
+                    print_calc_status(res.converged, res.niter, res.delta_eng);
+                    println!("电子能量 : {:>20.10} Hartree", res.ele_eng);
+                    println!("交换相关能: {:>19.10} Hartree", res.xc_eng);
+                    println!("核排斥能 : {:>20.10} Hartree", res.nuc_eng);
+                    println!("总能量   : {:>20.10} Hartree", total_eng);
+                    println!("<S^2>    : {:>20.6}（多重度 {}）", res.spin_sq, res.multip());
+
+                    let t_export = Instant::now();
+                    write_calc_fch(&mole, output, res.basis, res.coefs, total_eng);
+                    let t_export = t_export.elapsed();
+
+                    print_calc_timing(
+                        t_load,
+                        Some(t_grid),
+                        res.time_int1e,
+                        res.time_int2e,
+                        res.time_scf,
+                        t_export,
+                        t_total.elapsed(),
+                    );
+                }
+            }
+        },
         // ==================== 提取支持信息 ====================
         Commands::Si { inputs, output } => {
             if inputs.is_empty() {

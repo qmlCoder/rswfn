@@ -16,20 +16,20 @@ use crate::datas::{consts, roots};
 use crate::editor::Editor;
 use crate::gridprop;
 use crate::gridprop::{density, wfnfunc};
-use crate::integ::{self, get_2eid};
+use crate::loger;
 use crate::march;
 use crate::maths;
 use crate::moleprop;
 use crate::orbtprop;
 use crate::orbtprop::mocv;
 use crate::reader::{GjfReader, LogReader, MdeReader, Reader, XyzReader};
+use crate::rsint::get_2eid;
 use crate::tools;
 use crate::utils::{self, comp_matrix};
 use crate::writer;
 use crate::writer::{FchWriter, GjfWriter, Writer};
-use crate::{atomprop, qmcalc};
+use crate::{atomprop, qmcal};
 use crate::{bondprop, editor};
-use crate::{funcs, loger};
 
 /// 测试读取 log 文件并解析分子信息
 pub fn test_reader() {

@@ -5,7 +5,7 @@ use crate::datas::FACS;
 use crate::datas::btrans;
 use crate::datas::btrans::ang2syms;
 use crate::datas::btrans::sym2lmn;
-use crate::integ::RsInt;
+use crate::rsint::RsInt;
 use core::fmt;
 use std::collections::HashMap;
 use std::f64::consts::PI;
@@ -169,7 +169,7 @@ pub struct Shl {
     pub atm: usize,
     pub shl: usize,
     pub ang: usize,
-    pub form: String, // 0 mix 1 sph 2 car
+    pub form: String, // 1 sph 2 car
     pub alps: Vec<f64>,
     pub coes: Vec<f64>,
 }
@@ -181,14 +181,15 @@ impl Shl {
     /// - `atm`: 原子索引
     /// - `shl`: 壳层索引
     /// - `ang`: 角动量
+    /// - `form`: 函数形式（sph/car)
     /// - `alps`: 指数列表
     /// - `coes`: 收缩系数列表
-    pub fn new(atm: usize, shl: usize, ang: usize, alps: Vec<f64>, coes: Vec<f64>) -> Self {
+    pub fn new(atm: usize, shl: usize, ang: usize, form: String, alps: Vec<f64>, coes: Vec<f64>) -> Self {
         Self {
             atm,
             shl,
             ang,
-            form: "car".to_string(),
+            form,
             alps,
             coes,
         }
@@ -360,7 +361,8 @@ pub struct Bass {
 
 #[derive(Debug)]
 pub struct Basis {
-    pub shls: Shls, // atm,shl,ang,alp,coe,sph
+    pub shls: Shls, // [atm,shl,ang,form,alps,coes]
+    pub name: Option<String>,
     pub atos: OnceLock<Atos>,
     pub bass: OnceLock<Bass>,
     pub smat: OnceLock<[Array2<f64>; 3]>, // 存储球谐和笛卡尔的重叠积分
@@ -371,12 +373,18 @@ impl Basis {
     ///
     /// # Parameters
     /// - `shls`: 壳层列表
-    pub fn new(shls: Vec<Shl>) -> Basis {
+    pub fn new(shls: Vec<Shl>, name: Option<String>) -> Basis {
         let shls = Shls::new(shls);
         let atos = OnceLock::new();
         let bass = OnceLock::new();
         let smat = OnceLock::new();
-        Basis { shls, atos, bass, smat }
+        Basis {
+            shls,
+            name,
+            atos,
+            bass,
+            smat,
+        }
     }
 
     /// 用新的壳层列表重新构建基组
@@ -390,6 +398,38 @@ impl Basis {
     /// 判断基组是否为空（没有壳层）
     pub fn is_none(&self) -> bool {
         self.shls.len() == 0
+    }
+
+    /// 判断基组在积分计算中应当采用的轨道形式
+    ///
+    /// s、p 壳层的球谐与笛卡尔形式完全一致，因此只需看 l >= 2 的壳层：
+    /// 只要存在一个笛卡尔壳层就返回 `"car"`，否则返回 `"sph"`。
+    /// 对于 l >= 2 形式混合的基组（例如 6D 7F），积分只能统一按一种形式计算，
+    /// 这也是 `unify_form` 存在的原因。
+    pub fn int_form(&self) -> &'static str {
+        let car = self.shls.shls.iter().any(|shl| shl.ang >= 2 && shl.form == "car");
+        if car { "car" } else { "sph" }
+    }
+
+    /// 返回一个把 l >= 2 壳层形式统一为 `form` 的基组副本
+    ///
+    /// s、p 壳层保持原样（两种形式在数值和顺序上完全等价），
+    /// 这样在 `form` 下算出的系数矩阵与该基组声明的壳层形式一一对应，
+    /// 后续 `Coefs` 的形式转换（raw/sph/car）才不会错位。
+    pub fn unify_form(&self, form: &str) -> Basis {
+        let shls = self
+            .shls
+            .shls
+            .iter()
+            .map(|shl| {
+                let mut shl = shl.clone();
+                if shl.ang >= 2 {
+                    shl.form = form.to_string();
+                }
+                shl
+            })
+            .collect();
+        Basis::new(shls, self.name.clone())
     }
 
     /// 获取指定原子的所有壳层
@@ -549,6 +589,7 @@ impl Clone for Basis {
     fn clone(&self) -> Self {
         Self {
             shls: self.shls.clone(),
+            name: self.name.clone(),
             atos: self.atos.clone(),
             bass: self.bass.clone(),
             smat: self.smat.clone(),

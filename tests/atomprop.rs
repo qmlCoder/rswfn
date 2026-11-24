@@ -7,8 +7,8 @@ use utils::allclose;
 #[test]
 /// 测试苯环mulliken电荷
 fn test1() {
-    let path = String::from(r"E:\code\rswfn\moles\C6H6.fch");
-    let mole = Mole::from_file(&path);
+    let path = "moles/C6H6.fch";
+    let mole = Mole::from_file(path);
 
     let caler = atomprop::charge::Calculator::new(&mole);
     let res = caler.mulliken();
@@ -22,8 +22,8 @@ fn test1() {
 #[test]
 /// 测试苯环lowdin电荷
 fn test2() {
-    let path = String::from(r"E:\code\rswfn\moles\C6H6.fch");
-    let mole = Mole::from_file(&path);
+    let path = "moles/C6H6.fch";
+    let mole = Mole::from_file(path);
     let caler = atomprop::charge::Calculator::new(&mole);
     let res = caler.lowdin();
     let ans = vec![
@@ -36,8 +36,8 @@ fn test2() {
 #[test]
 /// 测试苯环hirshfeld电荷
 fn test3() {
-    let path = String::from(r"E:\code\rswfn\moles\C6H6.fch");
-    let mole = Mole::from_file(&path);
+    let path = "moles/C6H6.fch";
+    let mole = Mole::from_file(path);
     let caler = atomprop::charge::Calculator::new(&mole);
     let mut res = caler.hirshfeld();
     let res = (0..res.len()).map(|atm| mole.atoms.get(atm).crg - res[atm]).collect();
@@ -61,8 +61,8 @@ fn test3() {
 #[test]
 /// 测试苯环pocv方法pi电子布居
 fn test4() {
-    let path = String::from(r"E:\code\rswfn\moles\C6H6.fch");
-    let mole = Mole::from_file(&path);
+    let path = "moles/C6H6.fch";
+    let mole = Mole::from_file(path);
 
     let caler = atomprop::charge::Calculator::new(&mole);
     let (dirs, vals) = caler.pi_pocv("mulliken").unwrap();
@@ -76,8 +76,8 @@ fn test4() {
 #[test]
 /// 测试苯环mocv方法pi电子布居
 fn test5() {
-    let path = String::from(r"E:\code\rswfn\moles\C6H6.fch");
-    let mole = Mole::from_file(&path);
+    let path = "moles/C6H6.fch";
+    let mole = Mole::from_file(path);
 
     let caler = atomprop::charge::Calculator::new(&mole);
     let (dirs, atos, vals) = caler.pi_mocv("mulliken").unwrap();
@@ -86,10 +86,11 @@ fn test5() {
     assert!(allclose(vals, ans, 1e-4));
 }
 
+#[test]
 /// 测试C6H6^- 自旋布居
 fn test6() {
-    let path = String::from(r"E:\code\rswfn\moles\C6H6_N.fch");
-    let mole = Mole::from_file(&path);
+    let path = "moles/C6H6_N.fch";
+    let mole = Mole::from_file(path);
     let caler = atomprop::charge::Calculator::new(&mole);
     let res = caler.spin("mulliken").iter().map(|row| row[2]).collect();
     let ans = vec![
@@ -102,9 +103,9 @@ fn test6() {
 #[test]
 /// 测试苯酚福井函数
 fn test7() {
-    let mole0 = Mole::from_file(r"E:\code\rswfn\moles\phenol.out");
-    let molen = Mole::from_file(r"E:\code\rswfn\moles\phenol_N+1.out");
-    let molep = Mole::from_file(r"E:\code\rswfn\moles\phenol_N-1.out");
+    let mole0 = Mole::from_file("moles/phenol.out");
+    let molen = Mole::from_file("moles/phenol_N+1.out");
+    let molep = Mole::from_file("moles/phenol_N-1.out");
     let caler = atomprop::activity::Calculator::new(&mole0);
     // 比较双描述符
     let res: Vec<f64> = caler
@@ -122,7 +123,7 @@ fn test7() {
 #[test]
 /// 测试三种轨道形式（raw/car/sph）计算的总电子数一致
 fn test8() {
-    let mole = Mole::from_file(r"E:\code\rswfn\moles\C2H4.out");
+    let mole = Mole::from_file("moles/C2H4.out");
     // C2H4 为 6D 笛卡尔基组，car/sph 转换非平凡，适合验证总电子数守恒
     let sums: Vec<f64> = ["raw", "car", "sph"]
         .into_iter()
@@ -141,7 +142,7 @@ fn test8() {
 #[test]
 /// 测试 MOCV 方法在笛卡尔型（6D）输入基组下的 π 电子布居
 fn test9() {
-    let mole = Mole::from_file(r"E:\code\rswfn\moles\C2H4.out");
+    let mole = Mole::from_file("moles/C2H4.out");
     // C2H4.out 的 raw 系数为笛卡尔形式，验证 MOCV 在非球谐输入下仍能正确工作
     let caler = atomprop::charge::Calculator::new(&mole);
     let (_stms, _atos, vals) = caler.pi_mocv("mulliken").unwrap();

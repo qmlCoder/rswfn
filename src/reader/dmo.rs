@@ -198,12 +198,12 @@ impl Reader for DmoReader {
                 keys.push(key);
                 let nlm = sym2nlm(atms[atm], shl, sym);
                 let ang = 1;
-                let shl = Shl::new(atm, shl, ang, vec![], vec![]);
+                let shl = Shl::new(atm, shl, ang, "car".to_string(), vec![], vec![]);
                 shls.push(shl);
             }
         }
         let coefs = self.get_coefs();
-        Some(Basis::new(shls))
+        Some(Basis::new(shls, None))
     }
 
     fn get_coefs(&self) -> Option<Coefs> {

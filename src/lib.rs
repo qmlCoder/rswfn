@@ -3,15 +3,16 @@ pub mod base;
 pub mod datas;
 
 pub mod editor;
-pub mod funcs; // 泛函
-pub mod integ;
 pub mod loger;
 pub mod march;
 pub mod maths;
 pub mod matrix;
 pub mod optim;
-pub mod qmcalc;
+pub mod qmcal;
 pub mod reader;
+pub mod rsbse;
+pub mod rsint;
+pub mod rsxcs; // 泛函
 pub mod space;
 pub mod tools;
 pub mod utils;

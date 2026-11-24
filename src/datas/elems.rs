@@ -214,8 +214,8 @@ pub fn zeff(atm: usize, neb: usize) -> f64 {
 
 /// 根据原子序号获取原子半径（原子单位）
 #[cached(size = 1024)]
-pub fn atm2rad(atm: usize) -> f64 {
-    return ELEMS[atm].rad;
+pub fn atm2rad(idx: usize) -> f64 {
+    return get_by_idx(idx).rad;
 }
 /// 根据原子序号获取元素在周期表中的行数
 #[cached(size = 1024)]

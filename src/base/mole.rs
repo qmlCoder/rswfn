@@ -16,6 +16,7 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 pub struct Mole {
+    pub path: Option<String>,
     pub atoms: Atoms,
     pub basis: Option<Basis>,
     pub coefs: Option<Coefs>,
@@ -29,7 +30,12 @@ impl Mole {
     /// - `basis`: 基组（可选）
     /// - `coefs`: 分子轨道系数（可选）
     pub fn new(atoms: Atoms, basis: Option<Basis>, coefs: Option<Coefs>) -> Mole {
-        let mut mole = Self { atoms, basis, coefs };
+        let mut mole = Self {
+            path: None,
+            atoms,
+            basis,
+            coefs,
+        };
         mole
     }
 
@@ -48,24 +54,27 @@ impl Mole {
     /// 从文件路径读取分子信息
     ///
     /// 自动根据文件扩展名选择合适的读取器
-    /// 支持格式：gjf, log, fch, mol, sdf, xyz, mde, dmo, inp, cub
+    /// 支持格式：gjf, log, fch, mol, sdf, xyz, mde, mwfn, dmo, inp, cub
     ///
     /// # Parameters
     /// - `path`: 文件路径
     pub fn from_file(path: &str) -> Mole {
         let file_type = get_fileType(path);
-        match file_type {
-            FileType::Gjf => return Mole::from_read(&reader::GjfReader::new(path)),
-            FileType::Log => return Mole::from_read(&reader::LogReader::new(path)),
-            FileType::Fch => return Mole::from_read(&reader::FchReader::new(path)),
-            FileType::Mol => return Mole::from_read(&reader::MolReader::new(path)),
-            FileType::Sdf => return Mole::from_read(&reader::SdfReader::new(path)),
-            FileType::Xyz => return Mole::from_read(&reader::XyzReader::new(path)),
-            FileType::Mde => return Mole::from_read(&reader::MdeReader::new(path)),
-            FileType::Dmo => return Mole::from_read(&reader::DmoReader::new(path)),
-            FileType::Inp => return Mole::from_read(&reader::InpReader::new(path)),
-            FileType::Cub => return Mole::from_read(&reader::CubReader::new(path)),
-        }
+        let mut mole = match file_type {
+            FileType::Gjf => Mole::from_read(&reader::GjfReader::new(path)),
+            FileType::Log => Mole::from_read(&reader::LogReader::new(path)),
+            FileType::Fch => Mole::from_read(&reader::FchReader::new(path)),
+            FileType::Mol => Mole::from_read(&reader::MolReader::new(path)),
+            FileType::Sdf => Mole::from_read(&reader::SdfReader::new(path)),
+            FileType::Xyz => Mole::from_read(&reader::XyzReader::new(path)),
+            FileType::Mde => Mole::from_read(&reader::MdeReader::new(path)),
+            FileType::Mfn => Mole::from_read(&reader::MfnReader::new(path)),
+            FileType::Dmo => Mole::from_read(&reader::DmoReader::new(path)),
+            FileType::Inp => Mole::from_read(&reader::InpReader::new(path)),
+            FileType::Cub => Mole::from_read(&reader::CubReader::new(path)),
+        };
+        mole.path = Some(path.to_string());
+        mole
     }
 
     /// 返回分子中的原子结构

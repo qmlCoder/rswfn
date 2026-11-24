@@ -199,7 +199,7 @@ impl Reader for OutReader {
     }
 
     fn get_basis(&self) -> Option<Basis> {
-        let mut basis = Basis::new(vec![]);
+        let mut basis = Basis::new(vec![], None);
         let data = self.read_basis();
         let syms = self.read_geome().0;
         let atms: Vec<usize> = syms.iter().map(|sym| sym2atm(sym)).collect();

@@ -2,7 +2,7 @@
 use ndarray::{Array2, s};
 use std::collections::HashMap;
 
-use crate::base::{Atoms, Basis, Coefs, Mole};
+use crate::base::{Atoms, Basis, Coefs, Mole, Shl};
 use crate::datas::elems;
 use crate::utils;
 use crate::writer::Writer;
@@ -12,6 +12,8 @@ pub struct FchWriter {
     pub charge: isize,
     /// 自旋多重度
     pub multip: usize,
+    /// 总能量（Hartree），写入文件的 Total Energy 字段
+    pub energy: f64,
     /// 原子信息
     pub atoms: Atoms,
     /// 基组信息
@@ -26,8 +28,9 @@ impl FchWriter {
         Self {
             charge: 0,
             multip: 1,
+            energy: 0.0,
             atoms: Atoms::new(&vec![], &vec![], &vec![]),
-            basis: Basis::new(vec![]),
+            basis: Basis::new(vec![], None),
             coefs: Coefs::new(vec![], vec![], vec![], vec![], vec![], Array2::zeros((0, 0))),
         }
     }
@@ -37,6 +40,7 @@ impl FchWriter {
         Self {
             charge: mole.charge(),
             multip: mole.multip(),
+            energy: 0.0,
             atoms: mole.atoms().clone(),
             basis: mole.basis().clone(),
             coefs: mole.coefs().clone(),
@@ -47,18 +51,25 @@ impl FchWriter {
     /// 生成fch文件内容字符串
     pub fn build(&self)->String {
         let mut text = String::new();
-        let mole = Mole::new(self.atoms.clone(), Some(self.basis.clone()), Some(self.coefs.clone()));
+        // 按基组实际的壳层形式写入系数：l >= 2 的形式决定系数矩阵是球谐还是笛卡尔
+        let form = self.basis.int_form();
+        let basis = self.basis.unify_form(form);
+        let mole = Mole::new(self.atoms.clone(), Some(basis), Some(self.coefs.clone()));
         let atoms=&self.atoms;
         let natm=atoms.len();
         let nele=mole.coefs().obt_eles(&mole);
         let syms=atoms.syms();
         let xyzs=atoms.xyzs();
-        let cmat=mole.coefs().get_cmat("sph", &mole);
-        let [nato,nobt]=cmat.shape().try_into().expect("获取分子轨道形状失败");
+        let cmat=mole.coefs().get_cmat(form, &mole);
+        let [nato,ncol]=cmat.shape().try_into().expect("获取分子轨道形状失败");
+        // 开壳层时系数矩阵为 nato × 2·nato（α 块在前、β 块在后）
+        let open=ncol>nato;
+        // "Number of independent functions" 指的是每个自旋的分子轨道数
+        let nobt=if open{ncol/2}else{ncol};
         // let nbas=self.basis.map_ato().len();
         let nbas=nato;
 
-        text.push_str("generate by rswfn");
+        text.push_str("generate by rswfn\n");
         text.push_str(&format!("Number of atoms                            I{:>17}\n",natm));
         text.push_str(&format!("Charge                                     I{:>17}\n",self.charge));
         text.push_str(&format!("Multiplicity                               I{:>17}\n",self.multip));
@@ -81,7 +92,7 @@ impl FchWriter {
         // 基组信息
         let (nshl,shl_types,shl_nbass,shl_atoms,pm_alps,pm_coes,sp_coes)=basis_info(&mole);
         let shl_nbass=shl_nbass.iter().map(|v|*v as isize).collect();
-        let shl_atoms=shl_atoms.iter().map(|v|*v as isize).collect();
+        let shl_atoms:Vec<isize>=shl_atoms.iter().map(|v|*v as isize).collect();
         text.push_str(&format!("Shell types                                I   N={:>12}\n",nshl));
         text.push_str(&i2str(&shl_types));
         text.push_str(&format!("Number of primitives per shell             I   N={:>12}\n",nshl));
@@ -98,33 +109,37 @@ impl FchWriter {
         let xyz_vec:Vec<f64>=shl_atoms.iter().flat_map(|atm|xyzs[*atm as usize-1].iter().copied()).collect();
         text.push_str(&f2str(&xyz_vec));
         text.push_str(&format!("Virial Ratio                               R{:>27.15E}\n",0.0));
-        text.push_str(&format!("Total Energy                               R{:>27.15E}\n",0.0));
+        text.push_str(&format!("Total Energy                               R{:>27.15E}\n",self.energy));
 
         // 分子轨道信息
         let obt_engs=&self.coefs.obt_engs;
-        text.push_str(&format!("Alpha Orbital Energies                     R   N={:>12}\n",obt_engs.len()));
-        text.push_str(&f2str(obt_engs));
-        let nato=cmat.nrows();
-        let nobt=cmat.ncols();
-        if nobt<=nato{
-            let coefs=cmat.t().flatten().to_vec();
-            text.push_str(&format!("Alpha MO coefficients                      R   N={:>12}\n",coefs.len()));
-            text.push_str(&f2str(&coefs));
-        }else{
-            let cmat_a=cmat.slice(s![..,..nobt/2]).to_owned();
-            let cmat_b=cmat.slice(s![..,nobt/2..]).to_owned();
-            let coefs_a=cmat_a.t().flatten().to_vec();
-            let coefs_b=cmat_b.t().flatten().to_vec();
+        if open{
+            // 开壳层：α/β 轨道能分别写入，各 nobt 个
+            let engs_a=obt_engs[..nobt].to_vec();
+            let engs_b=obt_engs[nobt..2*nobt].to_vec();
+            text.push_str(&format!("Alpha Orbital Energies                     R   N={:>12}\n",engs_a.len()));
+            text.push_str(&f2str(&engs_a));
+            text.push_str(&format!("Beta Orbital Energies                      R   N={:>12}\n",engs_b.len()));
+            text.push_str(&f2str(&engs_b));
+            let coefs_a=cmat.slice(s![..,..nobt]).t().flatten().to_vec();
+            let coefs_b=cmat.slice(s![..,nobt..]).t().flatten().to_vec();
             text.push_str(&format!("Alpha MO coefficients                      R   N={:>12}\n",coefs_a.len()));
             text.push_str(&f2str(&coefs_a));
             text.push_str(&format!("Beta MO coefficients                       R   N={:>12}\n",coefs_b.len()));
             text.push_str(&f2str(&coefs_b));
+        }else{
+            let coefs=cmat.t().flatten().to_vec();
+            text.push_str(&format!("Alpha Orbital Energies                     R   N={:>12}\n",obt_engs.len()));
+            text.push_str(&f2str(obt_engs));
+            text.push_str(&format!("Alpha MO coefficients                      R   N={:>12}\n",coefs.len()));
+            text.push_str(&f2str(&coefs));
         }
 
-        let dmat=mole.coefs().get_dmat("sph", &mole);
+        // Total SCF Density（下三角，含对角元）
+        let dmat=mole.coefs().get_dmat(form, &mole);
         let mut dvec=Vec::new();
         for i in 0..nato{
-            for j in 0..i{
+            for j in 0..=i{
                 dvec.push(dmat[(i,j)]);
             }
         }
@@ -199,21 +214,28 @@ fn basis_info(mole: &Mole) -> (usize, Vec<isize>, Vec<usize>, Vec<usize>, Vec<f6
     let mut shl_types = Vec::new();
     let mut shl_nbass = Vec::new();
     let mut shl_atoms = Vec::new();
-    // let mut keys=Vec::new();
-    let mut nbas: usize = 1;
     let mut pm_alps = Vec::new();
     let mut pm_coes = Vec::new();
-    let mut sp_coes = Vec::new();
+    let sp_coes = Vec::new();
     let nshl = basis.shls.len();
     for i in 0..nshl {
         let shl = basis.shls.get(i);
-        shl_types.push(shl.ang as isize);
+        shl_types.push(shl_type(&shl));
         shl_nbass.push(shl.alps.len());
+        shl_atoms.push(shl.atm + 1); // Gaussian 文件中原子从 1 开始编号
         pm_alps.extend(shl.alps.clone());
         pm_coes.extend(shl.coes.clone());
     }
-    shl_nbass.push(nbas);
     (nshl, shl_types, shl_nbass, shl_atoms, pm_alps, pm_coes, sp_coes)
+}
+
+/// 壳层类型：l >= 2 的球谐壳层用负数表示（与 Gaussian 约定一致）
+fn shl_type(shl: &Shl) -> isize {
+    if shl.form == "sph" && shl.ang > 1 {
+        -(shl.ang as isize)
+    } else {
+        shl.ang as isize
+    }
 }
 
 impl Writer for FchWriter {

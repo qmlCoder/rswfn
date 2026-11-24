@@ -8,9 +8,14 @@ use crate::gridprop::GridVals;
 use crate::gridprop::wfnfunc;
 use crate::maths;
 use crate::moleprop;
+use crate::rsint::EspCalculator;
 use ndarray::Array2;
 
 /// 电子密度计算器，支持分子、原子、轨道等不同级别的电子密度计算
+///
+/// 同时提供静电势的计算（核项 + 电子项，单位 Hartree），见
+/// [`Calculator::nuc_esp`]、[`Calculator::ele_esp`] 与 [`Calculator::tot_esp`]，
+/// 原理见 `docs/静电势.md`。
 pub struct Calculator<'m> {
     pub mole: &'m Mole,
     pub atms: &'m Vec<usize>,
@@ -20,6 +25,8 @@ pub struct Calculator<'m> {
     mole_spin: OnceLock<(Mole, Mole)>,
     /// 与格点无关的预计算量（惰性初始化）
     rho_plan: OnceLock<RhoPlan<'m>>,
+    /// 静电势的解析积分器（惰性初始化）
+    esp_plan: OnceLock<EspCalculator>,
 }
 
 /// 与格点无关的预计算量，避免在每个格点上重复计算。
@@ -57,6 +64,7 @@ impl<'m> Calculator<'m> {
             mole_pi_mocv: OnceLock::new(),
             mole_spin: OnceLock::new(),
             rho_plan: OnceLock::new(),
+            esp_plan: OnceLock::new(),
         }
     }
 
@@ -481,6 +489,55 @@ impl<'m> Calculator<'m> {
         let ft = f.t();
         let mul = f.dot(&h).dot(&ft)[(0, 0)];
         (norm2 * tr - mul) / norm3
+    }
+
+    // ===== 静电势（ESP） =====
+
+    /// 计算指定点处由原子核产生的静电势 `Σ_A Z_A/|r-R_A|`
+    ///
+    /// 使用有效核电荷（`atoms.crgs()`），因此赝势（ECP）体系也自洽。约定与 Multiwfn 一致：
+    /// 查询点落在原子核上（含浮点误差范围内的重合）时返回 `1e3`，避免出现无穷大。
+    pub fn nuc_esp(
+        &self,
+        grid: &[f64; 3], // 请求点（要计算的点）的坐标
+    ) -> f64 {
+        let atoms = self.mole.atoms();
+        let crgs = atoms.crgs();
+        let xyzs = atoms.xyzs();
+        let mut val = 0.0;
+        for a in 0..crgs.len() {
+            let dist = maths::calc_dist(grid, &xyzs[a]);
+            if dist < 1e-6 {
+                // 与 Multiwfn 相同：落在原子核上（含浮点误差范围内的重合）时给一个有限大值
+                return 1e3;
+            }
+            val += crgs[a] / dist;
+        }
+        val
+    }
+
+    /// 计算指定点处由电子产生的静电势 `-∫ρ(r')/|r-r'|d³r'`
+    ///
+    /// 由密度矩阵的解析高斯积分直接得到（见 [`EspCalculator`]），不做实空间格点积分，
+    /// 因此没有格点积分误差，也不存在 `1/|r-r'|` 的自作用奇点。
+    /// 结果为负值，已包含电子负号，可直接与 [`Calculator::nuc_esp`] 相加。
+    pub fn ele_esp(
+        &self,
+        grid: &[f64; 3], // query position 请求点（要计算的点）的坐标
+    ) -> f64 {
+        let plan = self.esp_plan.get_or_init(|| {
+            let dmat = self.mole.coefs().get_dmat("car", self.mole);
+            EspCalculator::new(self.mole, dmat)
+        });
+        plan.val(grid)
+    }
+
+    /// 计算指定点处的总静电势（核项 + 电子项）
+    ///
+    /// `V(r) = Σ_A Z_A/|r-R_A| - ∫ρ(r')/|r-r'|d³r'`，单位 Hartree。
+    /// 原理与推导见 `docs/静电势.md`。
+    pub fn tot_esp(&self, grid: &[f64; 3]) -> f64 {
+        self.nuc_esp(grid) + self.ele_esp(grid)
     }
 }
 

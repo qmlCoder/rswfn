@@ -3,9 +3,9 @@ use ndarray::{Array2, Axis, s};
 use std::collections::HashMap;
 
 use crate::base::{Mole, Stm, Vec3};
-use crate::integ::RsInt;
 use crate::maths::calc_dmat;
 use crate::orbtprop::mocv;
+use crate::rsint::RsInt;
 // use crate::orbtprop::obtmat::Mocv;
 use crate::orbtprop::mocv::{MocvDest, mocv_atos};
 use crate::{atomprop, maths, orbtprop};
@@ -193,7 +193,7 @@ impl<'m> Calculator<'m> {
                 let ato_syms = self.mole.basis().atos().syms("sph");
                 let dest = mocv::MocvDest::from_str("OrderDecom-SI").unwrap();
                 let keep_syms = mocv::mocv_syms(&dest, 0);
-                let mut atos = vec![];
+                let mut atos = vec![]; // 局部坐标系下保留的原子轨道
                 for (i, idx) in ato_atms.iter().enumerate() {
                     if *idx == atm {
                         if keep_syms.contains(&ato_syms[i]) {
