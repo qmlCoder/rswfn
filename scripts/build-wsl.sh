@@ -30,15 +30,17 @@ die() {
 mkdir -p "$DIST"
 
 for t in "$@"; do
-    # 交叉编译需要显式指定链接器和 C 编译器（vendored OpenSSL 也要用它）
+    # 交叉编译需要显式指定链接器和 C 编译器（例如 aarch64 的 gnu 工具链）。
+    # 注意 x86_64 musl 目标不要覆盖 linker（见下面的分支）。
     case "$t" in
         x86_64-unknown-linux-gnu) ;;
         x86_64-unknown-linux-musl)
-            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
-            export CC_x86_64_unknown_linux_musl=musl-gcc
-            # 必须显式要求静态链接：否则（在某些 musl-gcc 组合下）会得到动态链接
-            # musl 的二进制，在目标机器上直接 segfault。CI 里是隐式默认静态。
-            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS='-C target-feature=+crt-static'
+            # 不要覆盖 linker，也不要设 crt-static：让 rustc 用自带的 self-contained
+            # musl 生成 static-pie（与 CI 的 .github/workflows/release.yml 一致）。
+            # 用 musl-gcc 当 linker 会得到「动态链接 musl」或「非 PIE 静态」的双错
+            # 二进制，在目标机上启动即 segfault（TLS 未初始化）。
+            # C 依赖（vendored openssl-sys）的编译器由 cc crate 自动找 musl-gcc
+            # （需要 musl-tools，见 docs/install.md）。
             ;;
         aarch64-unknown-linux-gnu)
             export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc

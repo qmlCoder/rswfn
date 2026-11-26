@@ -1,5 +1,20 @@
 # 变更记录
 
+## 2026-11-26 修复 musl 发布产物（static-pie）并重传 v0.2.0
+
+- 现象：v0.2.0 的 `x86_64-unknown-linux-musl` 产物在 Ubuntu/WSL 上启动即 segfault
+  （连 `--version` 都崩），`file` 显示“dynamically linked”或“非 PIE 静态”。
+- 根因：`scripts/build-wsl.sh` 的 musl 分支把 linker 覆盖成 `musl-gcc`（并加
+  `+crt-static`），这会让 rustc 绕过自带的 self-contained musl 运行时，得到错误
+  链接方式的二进制（TLS/GS 未初始化）。
+- 修复：musl 分支不再覆盖 linker、不再设 crt-static，直接
+  `cargo build --release --locked --target x86_64-unknown-linux-musl`，与 CI 的
+  `.github/workflows/release.yml` 一致；rustc 会生成 static-pie。C 依赖（vendored
+  `openssl-sys`）的编译器由 cc crate 自动找 `musl-gcc`（需 `musl-tools`）。
+- 重新构建 musl 并重传 OSS / GitHub Release 的 v0.2.0 资产；crates.io 已发布的
+  源码不受影响（无需也无法重发）。
+- 验证：`file` 为 `static-pie linked`；WSL 里 `rswfn --version` 输出 `rswfn 0.2.0`。
+
 ## 2026-11-26 发布 v0.2.0
 
 - 版本 0.1.3 → 0.2.0（`Cargo.toml`、`Cargo.lock`；README/docs 里「已发布 / 最新版本」
