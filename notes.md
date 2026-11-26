@@ -1,5 +1,25 @@
 # 变更记录
 
+## 2026-11-26 安装到 sxf 服务器（192.168.31.200）+ musl 静态链接修复
+
+- 目标机：`sxf`（192.168.31.200, `fly`），Ubuntu 24.04 / x86_64，无 Rust 工具链。
+- 做法：从**已提交的 HEAD**（含预览配色修复）导出干净源码（`git archive`）到
+  `target/rel-src`，避免混入工作区里未完成的 qmcal/mfn 改动；在 WSL 里交叉编译
+  `x86_64-unknown-linux-musl` 的 release 版（fat LTO，约 15–17 分钟），
+  `scp` 到服务器后 `install -m 755` 到 `~/.local/bin/rswfn`。
+- 验证：`command -v rswfn` → `/home/fly/.local/bin/rswfn`；`rswfn --version` →
+  `rswfn 0.1.3`；`TERM=xterm-256color rswfn view ~/gfile/lin-Co-lianben.gjf` 输出
+  0 处 `38;2;`、10 处 `38;5;`，说明配色降级在服务器上生效（Xshell 不会再满屏彩条）。
+- **发现并修复一个发布链路的真实 bug**：`scripts/build-wsl.sh` 编 musl 时只设了
+  `LINKER`/`CC`，没有强制 `crt-static`，结果产出**动态链接 musl** 的二进制
+  （`interpreter /lib/ld-musl-x86_64.so.1`），在 Ubuntu 上直接 segfault；CI 的产物是
+  `static-pie linked` 所以没暴露。现已加上
+  `CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS='-C target-feature=+crt-static'`，
+  只影响 musl 目标，不影响 gnu/aarch64。
+- 备注：非交互 `ssh`（不读 login shell 启动文件）的 PATH 不包含 `~/.local/bin`，
+  需要用 `ssh sxf "bash -lc 'rswfn --version'"` 验证；Xshell 交互登录会话里
+  Ubuntu 默认 `~/.profile` 会把它加进 PATH，所以直接输 `rswfn` 即可。
+
 ## 2026-11-26 预览兼容不支持真彩色的终端（Xshell）
 
 - 现象：在 Xshell 里结构预览整屏变成随机彩色横条，看不出分子。

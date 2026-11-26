@@ -36,6 +36,9 @@ for t in "$@"; do
         x86_64-unknown-linux-musl)
             export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
             export CC_x86_64_unknown_linux_musl=musl-gcc
+            # 必须显式要求静态链接：否则（在某些 musl-gcc 组合下）会得到动态链接
+            # musl 的二进制，在目标机器上直接 segfault。CI 里是隐式默认静态。
+            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS='-C target-feature=+crt-static'
             ;;
         aarch64-unknown-linux-gnu)
             export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
