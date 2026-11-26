@@ -208,6 +208,36 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.1 -BaseUrl f
 使用本地目录（含 `file://` 形式）作为下载基址时，脚本无法从中查询最新版本，
 **必须显式指定版本**（`--version` / `-Version` 或 `RSWFN_VERSION`）；完全离线的环境同理。
 
+### 官方阿里云 OSS 镜像
+
+每个版本除了发到 GitHub Releases，还会由 release workflow 镜像到阿里云 OSS，目录名用
+`v<version>`，与上面的镜像约定完全一致：
+
+```text
+oss://wmview/rswfn/v0.1.3/
+├── SHA256SUMS
+├── rswfn-0.1.3-aarch64-unknown-linux-gnu.tar.gz
+├── rswfn-0.1.3-x86_64-pc-windows-msvc.zip
+├── rswfn-0.1.3-x86_64-unknown-linux-gnu.tar.gz
+└── rswfn-0.1.3-x86_64-unknown-linux-musl.tar.gz
+```
+
+所以可以把 bucket 的公开访问地址当下载基址（GitHub 访问不稳定时很有用）：
+
+```sh
+sh install.sh --version 0.1.3 \
+    --base-url https://wmview.oss-cn-<region>.aliyuncs.com/rswfn
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.3 `
+    -BaseUrl https://wmview.oss-cn-<region>.aliyuncs.com/rswfn
+```
+
+把 `oss-cn-<region>` 换成 bucket 实际所在的 region。注意两点：OSS 上没有「最新版本」
+这个概念，所以用 OSS 作基址时必须显式给 `--version` / `-Version`；并且该地址需要
+bucket 或这些对象允许**公共读**（私有 bucket 只能下载带签名的 URL，安装脚本不支持）。
+
 ## 6. 校验机制（SHA256SUMS）
 
 每个 Release 都附带 `SHA256SUMS`，其中每行形如
@@ -397,9 +427,15 @@ Windows 同理：先 `irm ... -OutFile install.ps1`，再用 `powershell -Execut
    ```
 
    可用 `gh release view v0.1.1 --repo qmlCoder/rswfn` 确认资产齐全。
-4. **在干净机器上验证两条一行命令**：准备一台 Linux 和一台 Windows（都不预装 Rust），
+4. **确认 OSS 镜像**：release workflow 会把同一份资产（4 个归档 + `SHA256SUMS`）
+   上传到 `oss://wmview/rswfn/v<version>/`，日志里会打印 `install base url`。
+   该步骤需要仓库 secrets `OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、
+   `OSS_ENDPOINT`（可选 `OSS_BUCKET`、`OSS_PREFIX`）；没配置时会**静默跳过**，
+   只发 GitHub Release。想单独重传某个已有版本，在 Actions 里手动跑
+   `Mirror to OSS` workflow，填 tag 即可（重跑是幂等的）。
+5. **在干净机器上验证两条一行命令**：准备一台 Linux 和一台 Windows（都不预装 Rust），
    分别运行第 2、3 节的一行命令，再确认 `rswfn --version` 输出预期版本。
-5. **（可选）同步 crates.io**：GitHub Release 与 crates.io 发布相互独立；如果希望
+6. **（可选）同步 crates.io**：GitHub Release 与 crates.io 发布相互独立；如果希望
    `cargo install rswfn` 也能装到新版本，需要另外执行 `cargo publish`。
 
 注意：在 Actions 页面手动触发（`workflow_dispatch`）只会构建产物，不会创建 Release，

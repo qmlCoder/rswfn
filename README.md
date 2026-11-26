@@ -81,6 +81,10 @@ single self-contained `.exe` with no `vcruntime140.dll` dependency.
 > source — use `cargo install rswfn` (version 0.1.3 is published on crates.io).
 > Only Windows x86_64 and Linux x86_64/aarch64 have prebuilt binaries; Windows
 > ARM64 and macOS have none.
+>
+> Every release is also mirrored to Aliyun OSS at `oss://wmview/rswfn/v<version>/`;
+> see [docs/install.md](https://github.com/qmlCoder/rswfn/blob/main/docs/install.md)
+> for using that mirror as `--base-url`.
 
 Options (pin a version, choose the install directory, force a Linux target,
 uninstall, or install from a mirror):

@@ -117,7 +117,18 @@ jobs:
     # 只有打 tag 时才创建 Release
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    # secrets 不能直接写进 step 的 if 条件，放到 job 级 env 再用 env 判断，
+    # 这样没配置 OSS 凭据时只跳过镜像步骤，不影响 GitHub Release。
+    env:
+      OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+      OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+      OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+      OSS_PREFIX: ${{ secrets.OSS_PREFIX }}
     steps:
+      # 下面的 OSS 步骤要跑 .github/scripts/upload_oss.py，需要先检出仓库
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -218,3 +229,16 @@ jobs:
               --title "${tag}" \
               --generate-notes
           fi
+
+      # 把同一份资产镜像到阿里云 OSS：oss://wmview/rswfn/v<version>/
+      # 目录名用 v<version>，与安装脚本的镜像约定 <base-url>/v<version>/<asset>
+      # 一致，所以可以直接把 OSS 地址当下载基址安装：
+      #   sh install.sh --version <ver> --base-url https://wmview.<endpoint>/rswfn
+      # 没配置 OSS secrets 时静默跳过（分叉仓库 / 只想发 GitHub Release 的场景）。
+      - name: Upload to Aliyun OSS
+        if: env.OSS_ACCESS_KEY_ID != '' && env.OSS_ACCESS_KEY_SECRET != '' && env.OSS_ENDPOINT != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check oss2
+          python3 .github/scripts/upload_oss.py "${GITHUB_REF_NAME}" dist

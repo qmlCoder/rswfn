@@ -1,5 +1,25 @@
 # 变更记录
 
+## 2026-11-26 发布资产同步到阿里云 OSS
+
+- 新增 `.github/scripts/upload_oss.py`：用官方 `oss2` SDK 把 `dist/` 里的发布资产上传到
+  `oss://wmview/rswfn/v<version>/`（4 个归档 + `SHA256SUMS`）。
+  - 目录名用 `v<version>`，与 `install.sh` / `install.ps1` 的镜像约定
+    `<base-url>/v<version>/<asset>` 一致，所以 OSS 地址可以直接当 `--base-url` 用。
+  - 按扩展名设置 `Content-Type`，并带 `Cache-Control: public, max-age=31536000, immutable`
+    （版本目录内容不会再变）。
+- `.github/workflows/release.yml`：`release` job 补上 `actions/checkout`（拿脚本），
+  并在创建 GitHub Release 后多一步 `Upload to Aliyun OSS`。
+  - 因为 GitHub 不允许在 step 的 `if` 里直接引用 secrets，凭据放在 job 级 `env`
+    （`OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` / `OSS_ENDPOINT`，可选
+    `OSS_BUCKET` / `OSS_PREFIX`），再用 `env` 判断：没配置就静默跳过，不影响
+    GitHub Release 与分叉仓库。
+- 新增 `.github/workflows/mirror-oss.yml`：`workflow_dispatch` 手动把某个已有 Release
+  镜像到 OSS（填 tag，留空则取 latest），用于回填 v0.1.3 这类之前没镜像的版本；
+  重跑幂等。手动触发时缺凭据直接报错，不静默跳过。
+- 文档：`docs/install.md` 第 5 节新增「官方阿里云 OSS 镜像」（目录结构、公共读与
+  “必须显式给版本”的限制），第 11 节发布清单加入 OSS 校验与 secrets 说明；README 补一行。
+
 ## 2026-11-26 发布 v0.1.3（修复 Linux/musl 构建）
 
 - v0.1.2 已上传 crates.io，但 GitHub Release 的构建在 `x86_64-unknown-linux-musl`
