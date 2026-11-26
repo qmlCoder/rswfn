@@ -1,4 +1,4 @@
 - 生成文档时优先生成typst文档，并且同时要导出pdf，都在`docs`文件夹中
 - 当添加新方法时，应该在`cli`中也加入对应的功能
 - 每次修改程序后，把修改记录在`notes.md`中
-- 发布时，检查一下版本号，上传到`crates.io`和`github release`中
+- 发布时，检查一下版本号，上传到`crates.io`，`github release`以及`阿里云oss`(oss://wmview/rswfn/)中

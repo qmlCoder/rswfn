@@ -9,5 +9,9 @@
 __pycache__/
 *.pyc
 
+# 本地凭据（模板见 .env.example，不要提交）
+.env
+.env.local
+
 # 基组数据需要随源码提交, 否则 include_str! 在全新克隆中无法编译
 !src/rsbse/txts/*.txt

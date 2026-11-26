@@ -433,6 +433,25 @@ Windows 同理：先 `irm ... -OutFile install.ps1`，再用 `powershell -Execut
    `OSS_ENDPOINT`（可选 `OSS_BUCKET`、`OSS_PREFIX`）；没配置时会**静默跳过**，
    只发 GitHub Release。想单独重传某个已有版本，在 Actions 里手动跑
    `Mirror to OSS` workflow，填 tag 即可（重跑是幂等的）。
+
+   凭据建议记在仓库根的 `.env`（已被 `.gitignore` 忽略，模板见 `.env.example`）。
+   本地跑脚本时会自动读取它；同步到 GitHub Secrets 只需一条命令：
+
+   ```sh
+   cp .env.example .env    # 填入 OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET
+   gh secret set -f .env --repo qmlCoder/rswfn
+   ```
+
+   本地回填某个已发布版本（不需要打 tag）：
+
+   ```sh
+   gh release download v0.1.3 --dir dist-oss --clobber
+   python .github/scripts/upload_oss.py v0.1.3 dist-oss
+   ```
+
+   `gh secret set -f` 会把 `.env` 里的非注释行全部写成 secrets；`.env` 里的
+   `OSS_BUCKET` / `OSS_PREFIX` 也会一并写入，workflow 正是从 `secrets.OSS_*`
+   读取这几个值，所以不需要另外处理。
 5. **在干净机器上验证两条一行命令**：准备一台 Linux 和一台 Windows（都不预装 Rust），
    分别运行第 2、3 节的一行命令，再确认 `rswfn --version` 输出预期版本。
 6. **（可选）同步 crates.io**：GitHub Release 与 crates.io 发布相互独立；如果希望

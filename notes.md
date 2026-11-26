@@ -1,5 +1,19 @@
 # 变更记录
 
+## 2026-11-26 把 OSS 凭据收到 .env
+
+- 新增 `.env`（仓库根，已加入 `.gitignore`）记录 `OSS_ACCESS_KEY_ID` /
+  `OSS_ACCESS_KEY_SECRET` / `OSS_ENDPOINT` / `OSS_BUCKET` / `OSS_PREFIX`；
+  另加可提交的模板 `.env.example`。
+- `.github/scripts/upload_oss.py`：新增 `load_dotenv()`，取值顺序为
+  **进程环境变量 > 仓库根 `.env`**，因此 CI 里靠 GitHub Secrets 注入的环境变量
+  优先，本地直接跑脚本则自动读 `.env`（支持 `export ` 前缀、引号、BOM/CRLF）。
+- `Cargo.toml` 的 `exclude` 增加 `/.env` 与 `/.env.*`，防止凭据误入 crates.io 包。
+- 文档：`docs/install.md` 第 11 节补充 `.env` 用法——
+  `gh secret set -f .env --repo qmlCoder/rswfn` 一次性同步到 Actions secrets，
+  以及本地用 `gh release download` + `upload_oss.py` 回填。
+- 实测：在未导出环境变量的子进程里跑脚本，成功回填 `oss://wmview/rswfn/v0.1.3/`。
+
 ## 2026-11-26 发布资产同步到阿里云 OSS
 
 - 新增 `.github/scripts/upload_oss.py`：用官方 `oss2` SDK 把 `dist/` 里的发布资产上传到

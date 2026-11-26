@@ -29,6 +29,8 @@ exclude = [
     "/config.json",
     "/TODO.md",
     "/*.pdf",
+    "/.env",
+    "/.env.*",
 ]
 
 

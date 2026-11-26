@@ -17,6 +17,9 @@
     OSS_BUCKET                                 默认 wmview
     OSS_PREFIX                                 默认 rswfn
 
+取值顺序：进程环境变量 > 仓库根目录的 .env（模板见 .env.example）。
+所以 CI 里靠 GitHub Secrets 提供的环境变量即可，本地则把凭据放在 .env。
+
 用法：
     python3 .github/scripts/upload_oss.py <version> <dist-dir>
 """
@@ -44,6 +47,30 @@ def content_type(path: Path) -> str:
     return SUFFIX_TYPES.get(path.suffix, "application/octet-stream")
 
 
+def load_dotenv() -> Path | None:
+    """把 .env 里的键补进环境变量（已存在的不覆盖，所以 CI 的 secrets 优先）。"""
+    repo_root = Path(__file__).resolve().parents[2]
+    for candidate in (Path.cwd() / ".env", repo_root / ".env"):
+        if not candidate.is_file():
+            continue
+        # utf-8-sig：容忍 Windows 记事本写入的 BOM
+        for line in candidate.read_text(encoding="utf-8-sig").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export ") :].lstrip()
+            key, sep, value = line.partition("=")
+            if not sep:
+                continue
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+        return candidate
+    return None
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 3:
         print("用法: upload_oss.py <version> <dist-dir>", file=sys.stderr)
@@ -52,6 +79,10 @@ def main(argv: list[str]) -> int:
     raw_version, dist = argv[1], Path(argv[2])
     # 允许调用方直接传 tag 名（v0.1.3），统一去掉前缀
     version = raw_version[1:] if raw_version.startswith("v") else raw_version
+
+    env_file = load_dotenv()
+    if env_file is not None:
+        print(f"read defaults from {env_file}")
 
     missing = [
         name
