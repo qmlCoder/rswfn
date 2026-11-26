@@ -1,6 +1,6 @@
 [package]
 name = "rswfn"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 authors = ["Shi Xiaofei"]
 description = "A wavefunction analysis library and command-line tool for quantum chemistry"
@@ -28,6 +28,7 @@ exclude = [
     "/test.txt",
     "/config.json",
     "/TODO.md",
+    "/*.pdf",
 ]
 
 
@@ -50,6 +51,9 @@ memmap2 = "0.9.9"                                        # 内存映射库，将
 special = "0.11.4"
 chrono = "0.4"
 cached = "0.56.0"                                        # 函数级缓存库
+serde = { version = "1", features = ["derive"] }         # 结果结构序列化
+serde_json = "1"                                         # --json 输出
+ratatui = "0.29"                                         # 全屏终端界面（TUI）
 # rsint 0.1.2 起已可在 stable(含 Windows/MSVC)上编译, 不再需要 nightly.
 rsint = { version = "0.1.2", optional = true }           # libcint 的 Rust 直译版
 rsxcs = { version = "0.2", optional = true }             # libxc 7.1.2 子集的 Rust 实现
@@ -64,8 +68,13 @@ lto = true
 opt-level = 3
 strip = true      # Ensures debug symbols are removed.
 codegen-units = 1
-panic = "abort"   # Higher performance by disabling panic handlers.
-debug = true      # 进行性能测试的时候需要打开
+# TUI 需要能捕获后台任务中的 panic（catch_unwind），因此不能使用 abort。
+panic = "unwind"
+# 不能同时开 debug：lib 与 bin 同名 `rswfn`，都会写 deps/rswfn.pdb，
+# fat LTO 下曾导致 rustc 0xc0000005（STATUS_ACCESS_VIOLATION）；
+# 而且 strip = true 本来就会剥掉调试信息。
+# 需要性能剖析时请改为 debug = true + strip = false，并注意 PDB 同名问题。
+debug = false
 
 [features]
 default = ["use-rsint", "use-rsxcs","use-rsbse"]

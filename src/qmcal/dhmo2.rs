@@ -1,13 +1,14 @@
 // DHMO方法的第二个版本，计算任意朝向P轨道的重叠积分，其实就是在EHMO的基础上只考虑pz轨道
 // 要能够计算两个p轨道的重叠积分，这两个原子轨道都在x轴上，积分数值只和距离有关
 
-use crate::bondprop;
+use crate::props::bondprop;
 use crate::datas::dhmo2::get_paras;
 use crate::{
-    atomprop,
     base::{Mole, Stm, Vec3},
     datas::consts::BOHR,
-    maths, utils,
+    maths,
+    props::atomprop,
+    utils,
 };
 use ndarray::{Array2, s};
 

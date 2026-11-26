@@ -4,10 +4,8 @@ pub mod datas;
 
 pub mod editor;
 pub mod loger;
-pub mod march;
 pub mod maths;
-pub mod matrix;
-pub mod optim;
+pub mod props;
 pub mod qmcal;
 pub mod reader;
 pub mod rsbse;
@@ -18,9 +16,5 @@ pub mod tools;
 pub mod utils;
 pub mod writer;
 
-pub mod atomprop;
-pub mod bondprop;
-pub mod fragprop;
-pub mod gridprop;
-pub mod moleprop;
-pub mod orbtprop;
+// 保持旧路径可用（`rswfn::march` 等），子模块已归入 `maths`
+pub use maths::{march, matrix, optim};

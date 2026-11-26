@@ -1,5 +1,5 @@
 use rswfn::base::Mole;
-use rswfn::bondprop;
+use rswfn::props::bondprop;
 
 mod utils;
 use utils::allclose;

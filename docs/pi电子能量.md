@@ -1,9 +1,9 @@
 # π 电子能量（POCV / MOCV）的计算原理
 
-> 对应代码：`src/moleprop/energy.rs`
+> 对应代码：`src/props/moleprop/energy.rs`
 > （`Calculator::pi_pocv` / `pi_mocv` / `pi_pocv_parts` / `pi_mocv_parts` / `pi_decompose`）
-> π 投影：`src/orbtprop/obtmat.rs`（`pi_pocv` / `pi_mocv` / `pocv` / `mocv`）、
-> `src/orbtprop/mocv.rs`（`MocvDest::PiProperty`、`mocv_atos`）
+> π 投影：`src/props/orbtprop/obtmat.rs`（`pi_pocv` / `pi_mocv` / `pocv` / `mocv`）、
+> `src/props/orbtprop/mocv.rs`（`MocvDest::PiProperty`、`mocv_atos`）
 > 能量泛函：`src/qmcal/ks.rs`（`rks_ele_eng`、`RKS::xc_eng`、`rsint::jk_mat`）
 > 集成测试：`tests/energy.rs`（C6H6）
 
@@ -125,7 +125,7 @@ $$
 两者都产出"π 部分的占据轨道系数"，差别在投影方式：
 
 **POCV（P 轨道垂直方向投影法）**
-- 对每个（重）原子求一个垂直于分子平面的 π 方向 $\hat{\mathbf n}$（`atomprop::direction`）；
+- 对每个（重）原子求一个垂直于分子平面的 π 方向 $\hat{\mathbf n}$（`props::atomprop::direction`）；
 - 只保留共轭原子上的 p 轨道分量，并把该原子的 $(p_x,p_y,p_z)$ 投影到 $\hat{\mathbf n}$ 上（`maths::vec_project`），其余分量置零；
 - `pocv(&dirs, false, false)`：对占据轨道逐列投影。
 - 返回系数为 **raw** 形式。

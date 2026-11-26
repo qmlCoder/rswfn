@@ -192,7 +192,7 @@ pub fn HMO_Analysis(
             }
         }
     }
-    println!("计算标准差:{:?}", heavy_order);
+    log::debug!("计算标准差: {heavy_order:?}");
     let sd = maths::vec_psd(&heavy_order);
     (omat, fvs, sd)
 }

@@ -64,7 +64,7 @@ impl OutReader {
             if line == "" {
                 break;
             }
-            println!("line:{}", line);
+            log::debug!("line: {line}");
             let vals: Vec<&str> = line.split_whitespace().into_iter().collect();
             let sym = vals[1].to_string();
             let x: f64 = vals[5].parse().unwrap();
@@ -128,9 +128,9 @@ impl OutReader {
         let mut cmat = Array2::zeros((nato, nato));
         let mut lidx = mark + 2;
         for ib in 0..block_numb {
-            println!("lidx:{},{}", lidx, self.lines[lidx]);
+            log::debug!("lidx: {}, {}", lidx, self.lines[lidx]);
             let idx_part = &self.lines[lidx + 0][16..];
-            println!("idx_part:{}", idx_part);
+            log::debug!("idx_part: {idx_part}");
             let idxs: Vec<usize> = idx_part
                 .char_indices()
                 .step_by(10)

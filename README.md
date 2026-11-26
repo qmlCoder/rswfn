@@ -38,6 +38,9 @@ It can be used both as a **library** and as a **CLI / TUI** application.
   and two-electron repulsion.
 - **Writers** for cube (`.cub`), `.xyz`, `.gjf`, `.fch`, `.mol` / `.dmo` and
   `.obj`.
+- **Terminal structure preview**: a truecolor ball-and-stick / space-filling /
+  wireframe picture of the molecule, available interactively in the TUI (`F4`)
+  and non-interactively as `rswfn view <file>`.
 
 ## Installation
 
@@ -75,7 +78,7 @@ single self-contained `.exe` with no `vcruntime140.dll` dependency.
 
 > **Note:** the one-line installers read the release assets from GitHub
 > Releases. If no release is available yet — or if you prefer building from
-> source — use `cargo install rswfn` (version 0.1.0 is published on crates.io).
+> source — use `cargo install rswfn` (version 0.1.2 is published on crates.io).
 > Only Windows x86_64 and Linux x86_64/aarch64 have prebuilt binaries; Windows
 > ARM64 and macOS have none.
 
@@ -85,20 +88,20 @@ uninstall, or install from a mirror):
 ```sh
 # Linux: arguments after `sh -s --` are passed to the installer
 base=https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh
-curl -fsSL "$base" | sh -s -- --version 0.1.1
+curl -fsSL "$base" | sh -s -- --version 0.1.2
 curl -fsSL "$base" | sh -s -- --dir "$HOME/bin"
 curl -fsSL "$base" | sh -s -- --target x86_64-unknown-linux-gnu
 curl -fsSL "$base" | sh -s -- --uninstall
-curl -fsSL "$base" | sh -s -- --version 0.1.1 --base-url /mnt/usb/rswfn-mirror
+curl -fsSL "$base" | sh -s -- --version 0.1.2 --base-url /mnt/usb/rswfn-mirror
 ```
 
 ```powershell
 # Windows: download the script first, then run it with options
 irm https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.1
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.2
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Dir "D:\tools\rswfn" -NoPath
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.1 -BaseUrl D:\rswfn-mirror
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.2 -BaseUrl D:\rswfn-mirror
 ```
 
 The environment variables `RSWFN_VERSION`, `RSWFN_INSTALL_DIR`,
@@ -130,7 +133,7 @@ macOS):
 cargo install rswfn
 ```
 
-This builds `rswfn` from source; crates.io currently publishes version 0.1.0.
+This builds `rswfn` from source; crates.io currently publishes version 0.1.2.
 
 ### As a library
 
@@ -162,8 +165,15 @@ rswfn bondprop order mayer C6H6.fch
 # σ/π/δ/φ decomposition of the bond order between atoms 1 and 2
 rswfn bondprop decom 1 2 C6H6.fch
 
+# Bond energy decomposition (bond / rest / cross) between atoms 1 and 2
+# (closed-shell hybrid functional; reads the functional and basis from the log)
+rswfn bondprop energy 1 2 C6H6.out
+
 # Aromaticity (PISD)
 rswfn moleprop aromacity C6H6.fch
+
+# π electron energy decomposition (POCV, or --method mocv)
+rswfn moleprop pi-energy C6H6.out
 
 # Composition of molecular orbital 21
 rswfn orbtprop composition 21 C6H6.fch
@@ -186,6 +196,11 @@ rswfn qmcal dft -i C6H6.fch --func pbe0 -o C6H6_pbe0.fch
 rswfn coord C6H6.fch coords.xyz
 rswfn trans C6H6.fch C6H6.gjf
 rswfn si scan1.log scan2.log -o si.txt
+
+# Preview the molecular structure in the terminal
+# (colour comes from CPK colours; `--style space` and `--style wire` also work)
+rswfn view C6H6.fch --size 100x40 --style ball --rotate 20,12
+rswfn view phenol.fch --style space --color always
 ```
 
 Run `rswfn --help`, or `rswfn <subcommand> --help`, for the full set of options.
@@ -193,7 +208,7 @@ Run `rswfn --help`, or `rswfn <subcommand> --help`, for the full set of options.
 ## Library usage
 
 ```rust
-use rswfn::atomprop::charge::Calculator;
+use rswfn::props::atomprop::charge::Calculator;
 use rswfn::base::Mole;
 
 fn main() {
@@ -249,7 +264,9 @@ Gaussian、ORCA、Molden 等程序的输出文件，进行各类波函数分析�
 双描述符、自由价、键级（Mayer / Wiberg）及其分解、芳香性、轨道成分分析，以及
 实空间函数（密度、静电势、ELF、RDG 等）的格点计算与导出，以及基于坐标与基
 组的闭壳层 Hartree-Fock（RHF）与 Kohn-Sham DFT 计算（B3LYP、PBE0、PBE、
-BLYP、BP86、SVWN5 可选）。既可以作为库使用，也可以直接作为命令行 / TUI 程序
+BLYP、BP86、SVWN5 可选）。另外可以在终端里直接预览分子结构：`rswfn view 文件`
+或在 TUI 里按 `F4`，支持球棍 / 空间填充 / 线框三种模型、方向键旋转、真彩色 CPK
+配色，不需要打开任何图形程序。既可以作为库使用，也可以直接作为命令行 / TUI 程序
 运行。
 
 ### 安装
@@ -265,8 +282,8 @@ BLYP、BP86、SVWN5 可选）。既可以作为库使用，也可以直接作为
 安装动态链接的 gnu 版本（性能略好，但同样要求 glibc ≥ 2.39）。Windows 产物使用静态
 CRT，是单个 `.exe`，不依赖 `vcruntime140.dll`。
 
-注意：0.1.0 已发布到 crates.io，预编译二进制来自 GitHub Releases（首个 release 为
-`v0.1.1`）。Windows 目前只提供 x86_64 产物（ARM64 暂不支持），默认安装到
+注意：最新版本 0.1.2 已发布到 crates.io，预编译二进制来自 GitHub Releases（首个
+release 为 `v0.1.1`）。Windows 目前只提供 x86_64 产物（ARM64 暂不支持），默认安装到
 `%LOCALAPPDATA%\Programs\rswfn` 并写入用户 PATH，需重开终端生效（`-NoPath` 可跳过）。
 Linux 默认安装到 `~/.local/bin`，脚本不会修改 shell 配置文件，需要自行把该目录加入
 PATH。指定版本、自定义目录、离线安装、卸载等用法详见

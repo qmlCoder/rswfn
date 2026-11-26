@@ -1,7 +1,7 @@
 use crate::base::{Basis, Coefs, Mole};
-use crate::gridprop;
-use crate::gridprop::wfnfunc;
 use crate::maths;
+use crate::props::gridprop;
+use crate::props::gridprop::wfnfunc;
 use crate::rsint::{Mat2e, RsInt};
 use crate::rsxcs::{RsXcs, XcFunc};
 use ndarray::{Array2, s};
@@ -129,14 +129,7 @@ fn grid_min_len(ngrid: usize) -> usize {
 /// - `xc_eng`: 格点积分得到的交换相关能
 ///
 /// 返回 `E = Tr(DH) + ½Tr(DJ) − ¼ a_x Tr(DK) + E_xc`。
-pub fn rks_ele_eng(
-    dmat: &Array2<f64>,
-    hmat: &Array2<f64>,
-    jmat: &Array2<f64>,
-    kmat: &Array2<f64>,
-    exact_x: f64,
-    xc_eng: f64,
-) -> f64 {
+pub fn rks_ele_eng(dmat: &Array2<f64>, hmat: &Array2<f64>, jmat: &Array2<f64>, kmat: &Array2<f64>, exact_x: f64, xc_eng: f64) -> f64 {
     (dmat * hmat).sum() + (dmat * jmat).sum() * 0.5 - (dmat * kmat).sum() * exact_x * 0.25 + xc_eng
 }
 
@@ -159,10 +152,7 @@ impl<'m> RKS<'m> {
         let int_form = mole.basis().int_form().to_string();
         let grid_caler = gridprop::dftgrid::Calculator::new(mole);
         let (grids, weits) = grid_caler.mol_grids(radial, angular);
-        let wfns: Vec<(Vec<f64>, Vec<[f64; 3]>)> = grids
-            .par_iter()
-            .map(|grid| ato_wfn_form(mole, grid, &int_form))
-            .collect();
+        let wfns: Vec<(Vec<f64>, Vec<[f64; 3]>)> = grids.par_iter().map(|grid| ato_wfn_form(mole, grid, &int_form)).collect();
         let (wfn0s, wfn1s): (Vec<_>, Vec<_>) = wfns.into_iter().unzip();
         Self {
             mole,
@@ -281,9 +271,7 @@ impl<'m> RKS<'m> {
                         let fj = wfn0[j];
                         let gj = wfn1[j];
                         let val_lda = fi * fj * vrho;
-                        let term = (fi * gj[0] + fj * gi[0]) * gx
-                            + (fi * gj[1] + fj * gi[1]) * gy
-                            + (fi * gj[2] + fj * gi[2]) * gz;
+                        let term = (fi * gj[0] + fj * gi[0]) * gx + (fi * gj[1] + fj * gi[1]) * gy + (fi * gj[2] + fj * gi[2]) * gz;
                         let val_gga = 2.0 * vsigma * term;
                         acc[irow + j] += (val_lda + val_gga) * weit;
                     }
@@ -375,7 +363,7 @@ impl<'m> RKS<'m> {
             // 能量：Tr(DH) + 1/2 Tr(DJ) - a_x/4 Tr(DK) + E_xc（与当前密度一致）
             let eng = rks_ele_eng(&dmat, &hmat, &jmat, &kmat, exact_x, xc_eng);
             delta_eng = (eng - ele_eng).abs();
-            println!("SCF 迭代 {i:>3}: 电子能量 = {eng:>18.10}  ΔE = {delta_eng:>9.2e}  E_xc = {xc_eng:>16.8}");
+            log::info!("SCF 迭代 {i:>3}: 电子能量 = {eng:>18.10}  ΔE = {delta_eng:>9.2e}  E_xc = {xc_eng:>16.8}");
             ele_eng = eng;
             if delta_eng < self.tol {
                 converged = true;
@@ -537,20 +525,8 @@ pub struct UKS<'m> {
 /// - `xc_eng`: 格点积分得到的交换相关能
 ///
 /// 返回 `E = Tr(DH) + ½Tr(DJ) − ½ a_x [Tr(D_α K_α) + Tr(D_β K_β)] + E_xc`。
-pub fn uks_ele_eng(
-    dmat: &Array2<f64>,
-    hmat: &Array2<f64>,
-    jmat: &Array2<f64>,
-    dmat_a: &Array2<f64>,
-    dmat_b: &Array2<f64>,
-    kmat_a: &Array2<f64>,
-    kmat_b: &Array2<f64>,
-    exact_x: f64,
-    xc_eng: f64,
-) -> f64 {
-    (dmat * hmat).sum() + (dmat * jmat).sum() * 0.5
-        - ((dmat_a * kmat_a).sum() + (dmat_b * kmat_b).sum()) * exact_x * 0.5
-        + xc_eng
+pub fn uks_ele_eng(dmat: &Array2<f64>, hmat: &Array2<f64>, jmat: &Array2<f64>, dmat_a: &Array2<f64>, dmat_b: &Array2<f64>, kmat_a: &Array2<f64>, kmat_b: &Array2<f64>, exact_x: f64, xc_eng: f64) -> f64 {
+    (dmat * hmat).sum() + (dmat * jmat).sum() * 0.5 - ((dmat_a * kmat_a).sum() + (dmat_b * kmat_b).sum()) * exact_x * 0.5 + xc_eng
 }
 
 impl<'m> UKS<'m> {
@@ -671,15 +647,7 @@ impl<'m> UKS<'m> {
     //
     // V^σ_ij = Σ_p w_p [ φ_i φ_j v_ρσ + G_ij·(2 v_σσ ∇ρ_σ + v_αβ ∇ρ_σ' ) ]
     // 其中 G_ij = φ_i ∇φ_j + φ_j ∇φ_i。按格点并行，每个任务累加两个局部矩阵。
-    fn calc_xcmat_spin(
-        &self,
-        rho: &SpinRho,
-        vr_a: &[f64],
-        vr_b: &[f64],
-        vs_aa: &[f64],
-        vs_bb: &[f64],
-        vs_ab: &[f64],
-    ) -> (Array2<f64>, Array2<f64>) {
+    fn calc_xcmat_spin(&self, rho: &SpinRho, vr_a: &[f64], vr_b: &[f64], vs_aa: &[f64], vs_bb: &[f64], vs_ab: &[f64]) -> (Array2<f64>, Array2<f64>) {
         let nato = self.base.wfn0s[0].len();
         let zero = || (vec![0.0f64; nato * nato], vec![0.0f64; nato * nato]);
         let mut acc = (0..self.base.grids.len())
@@ -800,12 +768,9 @@ impl<'m> UKS<'m> {
             niter = i;
             let dmat = &dmat_a + &dmat_b;
             let rho = self.calc_rho_spin(&dmat_a, &dmat_b);
-            let (zk, vr_a, vr_b, vs_aa, vs_bb, vs_ab) =
-                rsfun.run_spin(&rho.rho_a, &rho.rho_b, &rho.saa, &rho.sbb, &rho.sab);
+            let (zk, vr_a, vr_b, vs_aa, vs_bb, vs_ab) = rsfun.run_spin(&rho.rho_a, &rho.rho_b, &rho.saa, &rho.sbb, &rho.sab);
             let (xc_a, xc_b) = self.calc_xcmat_spin(&rho, &vr_a, &vr_b, &vs_aa, &vs_bb, &vs_ab);
-            xc_eng = (0..rho.rho_a.len())
-                .map(|p| zk[p] * (rho.rho_a[p] + rho.rho_b[p]) * self.base.weits[p])
-                .sum();
+            xc_eng = (0..rho.rho_a.len()).map(|p| zk[p] * (rho.rho_a[p] + rho.rho_b[p]) * self.base.weits[p]).sum();
 
             // 库伦项用总密度，交换项按自旋分别处理；精确交换按 a_x 加入
             let (jmat, kmat_a, kmat_b) = crate::rsint::jk_mat_spin(&dmat, &dmat_a, &dmat_b, &emat);
@@ -815,7 +780,7 @@ impl<'m> UKS<'m> {
             // 能量：Tr(D_tot H) + ½Tr(D_tot J) − ½ a_x [Tr(D_a K_a) + Tr(D_b K_b)] + E_xc
             let eng = uks_ele_eng(&dmat, &hmat, &jmat, &dmat_a, &dmat_b, &kmat_a, &kmat_b, exact_x, xc_eng);
             delta_eng = (eng - ele_eng).abs();
-            println!("SCF 迭代 {i:>3}: 电子能量 = {eng:>18.10}  ΔE = {delta_eng:>9.2e}  E_xc = {xc_eng:>16.8}");
+            log::info!("SCF 迭代 {i:>3}: 电子能量 = {eng:>18.10}  ΔE = {delta_eng:>9.2e}  E_xc = {xc_eng:>16.8}");
             ele_eng = eng;
             if delta_eng < self.base.tol {
                 converged = true;
@@ -866,11 +831,7 @@ impl<'m> UKS<'m> {
         // 构造与积分形式一致的基组与系数（α 块在前、β 块在后）
         let basis = mole.basis().unify_form(&self.base.int_form);
         let atos = basis.atos();
-        let ato_list = if self.base.int_form == "car" {
-            &atos.cars
-        } else {
-            &atos.sphs
-        };
+        let ato_list = if self.base.int_form == "car" { &atos.cars } else { &atos.sphs };
         let ato_atms: Vec<usize> = ato_list.iter().map(|ato| ato.atm).collect();
         let ato_shls: Vec<usize> = ato_list.iter().map(|ato| ato.shl).collect();
         let ato_syms: Vec<String> = ato_list.iter().map(|ato| ato.sym.clone()).collect();

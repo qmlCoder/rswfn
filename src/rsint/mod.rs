@@ -6,7 +6,7 @@
 // - 默认       : 本仓库手写的高斯积分实现
 use crate::base::{Mole, Stm};
 use crate::datas::btrans;
-use crate::orbtprop::mocv;
+use crate::props::orbtprop::mocv;
 use ndarray::{Array2, Array4, s};
 use rayon::prelude::*;
 use std::collections::HashMap;

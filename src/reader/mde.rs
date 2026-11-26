@@ -49,7 +49,7 @@ impl MdeReader {
                 continue;
             }
         }
-        println!("marks:{:?}", marks);
+        log::debug!("marks: {marks:?}");
         Self {
             path: path.to_string(),
             lines: lines,
@@ -169,7 +169,7 @@ impl MdeReader {
                 }
 
                 if line.starts_with("[") {
-                    println!("basis读取结束:{}|{}", l + 1, line);
+                    log::debug!("basis 读取结束: {}|{}", l + 1, line);
                     break;
                 }
             }

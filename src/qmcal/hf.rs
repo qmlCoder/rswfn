@@ -6,7 +6,7 @@ use ndarray::{Array1, Array2, s};
 use crate::base::{Basis, Coefs, Mole};
 // 实现HF方法，根据结构和基组信息，计算得到波函数
 use crate::rsint::{Mat2e, RsInt};
-use crate::{atomprop, maths, rsint};
+use crate::{maths, props::atomprop, rsint};
 
 use super::diis::Diis;
 
@@ -119,7 +119,7 @@ impl<'m> RHF<'m> {
 
         let ints = RsInt::new(mole);
         let (mat1e, emat, time_int1e, time_int2e) = if self.use_lstm {
-            println!("使用局部坐标系");
+            log::info!("使用局部坐标系");
             let mut dir_caler = atomprop::direction::Calculator::new(mole);
             let mut stms = HashMap::new();
             for atm in 0..mole.atoms.len() {
@@ -177,7 +177,7 @@ impl<'m> RHF<'m> {
             // 能量始终用与当前密度一致的 Fock 矩阵计算
             let eng = rhf_ele_eng(&dmat, &hmat, &fmat);
             delta_eng = (eng - ele_eng).abs();
-            println!("SCF 迭代 {i:>3}: 电子能量 = {eng:>18.10}  ΔE = {delta_eng:>9.2e}");
+            log::info!("SCF 迭代 {i:>3}: 电子能量 = {eng:>18.10}  ΔE = {delta_eng:>9.2e}");
             ele_eng = eng;
             if delta_eng < self.tol {
                 converged = true;
@@ -249,12 +249,7 @@ pub struct UHF<'m> {
 /// - `fmat`: α/β 的 Fock 矩阵
 ///
 /// 返回 `[E_α, E_β]`，其中 `E_σ = ½ Tr[D_σ(H + F_σ)]`、`H = T + V`。
-pub fn uhf_ele_eng(
-    dmat: &[Array2<f64>; 2],
-    tmat: &Array2<f64>,
-    vmat: &Array2<f64>,
-    fmat: &[Array2<f64>; 2],
-) -> [f64; 2] {
+pub fn uhf_ele_eng(dmat: &[Array2<f64>; 2], tmat: &Array2<f64>, vmat: &Array2<f64>, fmat: &[Array2<f64>; 2]) -> [f64; 2] {
     let hmat = tmat + vmat;
     let eng_a = ((&hmat + &fmat[0]) * &dmat[0]).sum() * 0.5;
     let eng_b = ((&hmat + &fmat[1]) * &dmat[1]).sum() * 0.5;
@@ -364,12 +359,7 @@ impl<'m> UHF<'m> {
                 beta = 1.0;
             }
 
-            log::info!(
-                "epoch:{i:>2},电子能量:{:>10.4} + {:>10.4} = {:>14.8}",
-                eng[0],
-                eng[1],
-                eng[0] + eng[1]
-            );
+            log::info!("epoch:{i:>2},电子能量:{:>10.4} + {:>10.4} = {:>14.8}", eng[0], eng[1], eng[0] + eng[1]);
             if (eng[0] + eng[1] - old_eng).abs() < 1e-6 {
                 break;
             }

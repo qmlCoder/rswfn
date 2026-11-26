@@ -1,4 +1,4 @@
-use rswfn::atomprop;
+use rswfn::props::atomprop;
 use rswfn::base::Mole;
 
 mod utils;
@@ -137,6 +137,58 @@ fn test8() {
     // C2H4 共 8α+8β = 16 个电子
     assert!(allclose(sums.clone(), vec![16.0, 16.0, 16.0], 1e-3));
     assert!((sums[0] - sums[2]).abs() < 1e-3);
+}
+
+#[test]
+/// 测试乙烯的标准两阶段 RESP 电荷
+fn test10() {
+    let mole = Mole::from_file("moles/C2H4.out");
+    let caler = atomprop::resp::Calculator::new(&mole);
+    let res = caler.resp().unwrap();
+    println!("resp C2H4: {:?}", res.charges);
+    println!("MK 点数: {}, RMSE: {:.3e}", res.n_points, res.rmse);
+
+    assert!(res.n_points > 0);
+    assert!(res.stage2 && res.converged);
+    assert!(res.rmse.is_finite() && res.rmse > 0.0);
+
+    // 总电荷守恒
+    let total: f64 = res.charges.iter().sum();
+    assert!((total - mole.charge() as f64).abs() < 1e-6);
+
+    // 乙烯的对称等价性：两个 C 等价，四个 H 等价
+    assert!((res.charges[0] - res.charges[3]).abs() < 1e-4);
+    let h = res.charges[1];
+    for i in [2, 4, 5] {
+        assert!((res.charges[i] - h).abs() < 1e-4);
+    }
+}
+
+#[test]
+/// 测试苯 RESP 电荷与 Multiwfn 3.8 的一致性
+fn test11() {
+    let mole = Mole::from_file("moles/C6H6.fch");
+    let caler = atomprop::resp::Calculator::new(&mole);
+    let res = caler.resp().unwrap();
+    let ans = vec![
+        -0.1079158845,
+        -0.1116391792,
+        -0.1116391757,
+        -0.1079158847,
+        -0.1133629517,
+        -0.1133629486,
+        0.1100701395,
+        0.1109257558,
+        0.1109257566,
+        0.1100701396,
+        0.1119221161,
+        0.1119221169,
+    ];
+    println!("RESP C6H6: {:?}", res.charges);
+    // 苯没有 sp³ 碳，第二阶段应被跳过
+    assert!(!res.stage2);
+    // 与 Multiwfn 的 MK 采样存在极小的浮点差异，容差取 5e-4
+    assert!(allclose(res.charges, ans, 5e-4));
 }
 
 #[test]

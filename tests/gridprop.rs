@@ -1,5 +1,5 @@
 use rswfn::base::Mole;
-use rswfn::gridprop::{density, dftgrid};
+use rswfn::props::gridprop::{density, dftgrid};
 use rswfn::maths::calc_dist;
 
 #[test]

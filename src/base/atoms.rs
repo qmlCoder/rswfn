@@ -513,6 +513,13 @@ impl Atoms {
         bonds.iter().any(|bond| bond[0] == ai && bond[1] == aj)
     }
 
+    /// 返回成键列表（0 基原子序号对）
+    ///
+    /// 读取文件时按距离判据自动生成，`set_bonds` 可以整体覆盖。
+    pub fn bonds(&self) -> Vec<[usize; 2]> {
+        self.bonds.lock().expect("锁定失败").clone()
+    }
+
     /// 手动设置原子间的成键关系
     ///
     /// 设置后会清除所有缓存的邻接原子和线性判断结果
@@ -520,7 +527,7 @@ impl Atoms {
     /// # Parameters
     /// - `bonds`: 成键关系映射，键为 [原子i, 原子j]，值为是否成键
     pub fn set_bonds(&self, bonds: Vec<[usize; 2]>) {
-        println!("设置成键:{:?}", bonds);
+        log::debug!("设置成键: {bonds:?}");
         let mut bonds_store = self.bonds.lock().expect("锁定失败");
         *bonds_store = bonds;
         let mut is_bonds = self.is_bonds.lock().expect("锁定失败");

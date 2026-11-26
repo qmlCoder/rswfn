@@ -8,7 +8,7 @@ use regex::Regex;
 
 use crate::{
     base::{Atoms, Basis, Coefs},
-    gridprop::CubeGrid,
+    props::gridprop::CubeGrid,
     reader::{Reader, read_lines},
 };
 

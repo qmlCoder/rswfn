@@ -9,27 +9,27 @@ use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
 
 use crate::base::{Mole, Stm, Vec3};
-use crate::bondprop::direction;
 use crate::datas::consts::BOHR;
 use crate::datas::{self, btrans};
 use crate::datas::{consts, roots};
 use crate::editor::Editor;
-use crate::gridprop;
-use crate::gridprop::{density, wfnfunc};
 use crate::loger;
-use crate::march;
 use crate::maths;
-use crate::moleprop;
-use crate::orbtprop;
-use crate::orbtprop::mocv;
+use crate::maths::march;
+use crate::props::bondprop::direction;
+use crate::props::gridprop;
+use crate::props::gridprop::{density, wfnfunc};
+use crate::props::moleprop;
+use crate::props::orbtprop;
+use crate::props::orbtprop::mocv;
+use crate::props::{atomprop, bondprop};
 use crate::reader::{GjfReader, LogReader, MdeReader, Reader, XyzReader};
 use crate::rsint::get_2eid;
 use crate::tools;
 use crate::utils::{self, comp_matrix};
 use crate::writer;
 use crate::writer::{FchWriter, GjfWriter, Writer};
-use crate::{atomprop, qmcal};
-use crate::{bondprop, editor};
+use crate::{editor, qmcal};
 
 /// 测试读取 log 文件并解析分子信息
 pub fn test_reader() {
@@ -53,10 +53,7 @@ pub fn test_topology() {
     let res = caler.analysis("mol_rho_dm");
     for (pos, val, cpt) in res {
         let [px, py, pz] = pos;
-        println!(
-            "pos: ({:>10.4}, {:>10.4}, {:>10.4}), val: {}, cpt: {}",
-            px, py, pz, val, cpt
-        );
+        println!("pos: ({:>10.4}, {:>10.4}, {:>10.4}), val: {}, cpt: {}", px, py, pz, val, cpt);
     }
 }
 
@@ -95,12 +92,7 @@ pub fn test_order() {
     for (i, stm) in stml.iter().enumerate() {
         for (j, syms) in syml.iter().enumerate() {
             let stms: HashMap<usize, Stm> = HashMap::from([(0usize, stm.clone()), (2usize, stm.clone())]);
-            let atos: Vec<usize> = ato_syms
-                .iter()
-                .enumerate()
-                .filter(|(_, s)| syms.contains(&s.as_str()))
-                .map(|(idx, _)| idx)
-                .collect();
+            let atos: Vec<usize> = ato_syms.iter().enumerate().filter(|(_, s)| syms.contains(&s.as_str())).map(|(idx, _)| idx).collect();
             let caler = bondprop::order::Calculator::new(&mole);
             let omat = caler.mocv(&stms, &atos, "mayer");
             data[(i, j)] = omat[(0, 2)];
@@ -127,13 +119,7 @@ pub fn test_order() {
     // ③ 打印每个朝向的三种键级
     println!("--- 绕全局 z 轴扫描(72) ---");
     for i in 0..data.nrows() {
-        println!(
-            "{:>3}: MOCV-PX {:>10.6} MOCV-D2 {:>10.6} POCV-z {:>10.6}",
-            i,
-            data[(i, 0)],
-            data[(i, 1)],
-            data_pocv[i]
-        );
+        println!("{:>3}: MOCV-PX {:>10.6} MOCV-D2 {:>10.6} POCV-z {:>10.6}", i, data[(i, 0)], data[(i, 1)], data_pocv[i]);
     }
 
     // ④ 打印 wmview 方式的 36 个方向
@@ -197,10 +183,7 @@ pub fn test_order() {
         (-0.2530, 0.9675, 0.0000, 0.3393),
     ];
     let caler = bondprop::order::Calculator::new(&mole);
-    println!(
-        "{:>3} {:>8} {:>8} {:>9} {:>9} {:>9} {:>9} {:>9}",
-        "#", "dx", "dy", "wm-val", "raw(0,2)", "raw(1,2)", "sqrt(0,2)", "sqrt(1,2)"
-    );
+    println!("{:>3} {:>8} {:>8} {:>9} {:>9} {:>9} {:>9} {:>9}", "#", "dx", "dy", "wm-val", "raw(0,2)", "raw(1,2)", "sqrt(0,2)", "sqrt(1,2)");
     for (i, (dx, dy, _dz, wval)) in wm.iter().enumerate() {
         let dir = Vec3::new(*dx, *dy, 0.0).normalize();
         let dirs02: HashMap<usize, Vec3> = HashMap::from([(0usize, dir.clone()), (2usize, dir.clone())]);
@@ -209,17 +192,7 @@ pub fn test_order() {
         let omat12 = caler.pocv(&dirs12, false, false, "mayer").expect("pocv 失败");
         let v02 = omat02[(0, 2)];
         let v12 = omat12[(1, 2)];
-        println!(
-            "{:>3} {:>8.4} {:>8.4} {:>9.4} {:>9.4} {:>9.4} {:>9.4} {:>9.4}",
-            i,
-            dx,
-            dy,
-            wval,
-            v02,
-            v12,
-            v02.max(0.0).sqrt(),
-            v12.max(0.0).sqrt()
-        );
+        println!("{:>3} {:>8.4} {:>8.4} {:>9.4} {:>9.4} {:>9.4} {:>9.4} {:>9.4}", i, dx, dy, wval, v02, v12, v02.max(0.0).sqrt(), v12.max(0.0).sqrt());
     }
 }
 

@@ -1,5 +1,5 @@
 use ndarray::Array2;
-use rswfn::orbtprop::mocv;
+use rswfn::props::orbtprop::mocv;
 
 /// 断言矩阵为单位矩阵（允许浮点误差）
 fn assert_identity(tmat: &Array2<f64>, tol: f64) {

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::base::{Coefs, Mole};
 use crate::maths;
 use crate::rsint::RsInt;
-use crate::{atomprop, utils};
+use crate::{props::atomprop, utils};
 use ndarray::{Array1, Array2};
 
 /// 闭壳层半经验方法计算器
