@@ -5,5 +5,9 @@
 *.dmo
 .vscode
 
+# Python 字节码（.github/scripts/upload_oss.py 本地试跑时会生成）
+__pycache__/
+*.pyc
+
 # 基组数据需要随源码提交, 否则 include_str! 在全新克隆中无法编译
 !src/rsbse/txts/*.txt
