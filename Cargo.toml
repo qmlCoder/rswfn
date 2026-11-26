@@ -1,6 +1,6 @@
 [package]
 name = "rswfn"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 authors = ["Shi Xiaofei"]
 description = "A wavefunction analysis library and command-line tool for quantum chemistry"
@@ -58,6 +58,13 @@ ratatui = "0.29"                                         # 全屏终端界面（
 rsint = { version = "0.1.2", optional = true }           # libcint 的 Rust 直译版
 rsxcs = { version = "0.2", optional = true }             # libxc 7.1.2 子集的 Rust 实现
 rsbse = { version = "0.12.1", optional = true }
+
+
+# rsbse 依赖 native-tls, 在 Linux 上会落到 openssl-sys, 需要系统 libssl 开发包.
+# 为了 `cargo install` 和 musl 发布构建都不依赖目标机器上的 OpenSSL, Linux 上改用
+# vendored OpenSSL (从源码编译, 需要 perl + make + cc/musl-gcc).
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl-sys = { version = "0.9", features = ["vendored"] }
 
 
 [profile.dev]

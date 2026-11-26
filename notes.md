@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-11-26 发布 v0.1.3（修复 Linux/musl 构建）
+
+- v0.1.2 已上传 crates.io，但 GitHub Release 的构建在 `x86_64-unknown-linux-musl`
+  失败：`rsbse 0.12.1` 硬依赖 `native-tls`，Linux 上落到 `openssl-sys`，需要系统 libssl
+  开发包（`musl link check` 也在同一个地方挂）。
+- 修复：`Cargo.toml` 增加 Linux 专属依赖
+  `openssl-sys = { version = "0.9", features = ["vendored"] }`，让 OpenSSL 从源码编译，
+  `cargo install` 和 musl 发布构建都不再依赖目标机上的 OpenSSL。`Cargo.lock` 新增
+  `openssl-src 300.6.1+3.6.3`。
+- 版本号 0.1.2 → 0.1.3：crates.io 上的 0.1.2 不可覆盖，且缺少上述修复。
+- `cargo install rswfn` 取最高版本，所以 0.1.3 自动取代 0.1.2，无需 yank。
+- README 里的版本示例同步更新为 0.1.3。
+
 ## 2026-11-26 发布 v0.1.2
 
 - 版本号 `0.1.1` → `0.1.2`（crates.io 上 0.1.1 已于 2026-11-21 发布，不能重复发布）。

@@ -78,7 +78,7 @@ single self-contained `.exe` with no `vcruntime140.dll` dependency.
 
 > **Note:** the one-line installers read the release assets from GitHub
 > Releases. If no release is available yet — or if you prefer building from
-> source — use `cargo install rswfn` (version 0.1.2 is published on crates.io).
+> source — use `cargo install rswfn` (version 0.1.3 is published on crates.io).
 > Only Windows x86_64 and Linux x86_64/aarch64 have prebuilt binaries; Windows
 > ARM64 and macOS have none.
 
@@ -88,20 +88,20 @@ uninstall, or install from a mirror):
 ```sh
 # Linux: arguments after `sh -s --` are passed to the installer
 base=https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh
-curl -fsSL "$base" | sh -s -- --version 0.1.2
+curl -fsSL "$base" | sh -s -- --version 0.1.3
 curl -fsSL "$base" | sh -s -- --dir "$HOME/bin"
 curl -fsSL "$base" | sh -s -- --target x86_64-unknown-linux-gnu
 curl -fsSL "$base" | sh -s -- --uninstall
-curl -fsSL "$base" | sh -s -- --version 0.1.2 --base-url /mnt/usb/rswfn-mirror
+curl -fsSL "$base" | sh -s -- --version 0.1.3 --base-url /mnt/usb/rswfn-mirror
 ```
 
 ```powershell
 # Windows: download the script first, then run it with options
 irm https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.2
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.3
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Dir "D:\tools\rswfn" -NoPath
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.2 -BaseUrl D:\rswfn-mirror
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.3 -BaseUrl D:\rswfn-mirror
 ```
 
 The environment variables `RSWFN_VERSION`, `RSWFN_INSTALL_DIR`,
@@ -133,7 +133,7 @@ macOS):
 cargo install rswfn
 ```
 
-This builds `rswfn` from source; crates.io currently publishes version 0.1.2.
+This builds `rswfn` from source; crates.io currently publishes version 0.1.3.
 
 ### As a library
 
@@ -282,7 +282,7 @@ BLYP、BP86、SVWN5 可选）。另外可以在终端里直接预览分子结构
 安装动态链接的 gnu 版本（性能略好，但同样要求 glibc ≥ 2.39）。Windows 产物使用静态
 CRT，是单个 `.exe`，不依赖 `vcruntime140.dll`。
 
-注意：最新版本 0.1.2 已发布到 crates.io，预编译二进制来自 GitHub Releases（首个
+注意：最新版本 0.1.3 已发布到 crates.io，预编译二进制来自 GitHub Releases（首个
 release 为 `v0.1.1`）。Windows 目前只提供 x86_64 产物（ARM64 暂不支持），默认安装到
 `%LOCALAPPDATA%\Programs\rswfn` 并写入用户 PATH，需重开终端生效（`-NoPath` 可跳过）。
 Linux 默认安装到 `~/.local/bin`，脚本不会修改 shell 配置文件，需要自行把该目录加入
