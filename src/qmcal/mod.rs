@@ -6,8 +6,10 @@ use std::f64::consts::PI;
 pub mod dhmo;
 pub mod dhmo2;
 pub mod diis;
+pub mod guess;
 pub mod hf;
 pub mod ks;
+pub mod lks;
 pub mod se;
 
 /// 计算Slater交换泛函的数值

@@ -126,13 +126,7 @@ impl PairData {
     }
 
     /// 计算 primitive 对的核引积分 ⟨a|1/|r-r_C||b⟩
-    fn attraction(
-        &self,
-        rc: &[f64; 3],
-        al: &mut [f64; MAX_COF],
-        am: &mut [f64; MAX_COF],
-        an: &mut [f64; MAX_COF],
-    ) -> f64 {
+    fn attraction(&self, rc: &[f64; 3], al: &mut [f64; MAX_COF], am: &mut [f64; MAX_COF], an: &mut [f64; MAX_COF]) -> f64 {
         // 重叠中心到查询点的矢量 PC = P - C
         let mut pc = [0.0; 3];
         let mut sq_pc = 0.0;
@@ -219,11 +213,7 @@ impl EspCalculator {
         // 上三角（含对角）的 primitive 密度
         let mut dprim = vec![0.0; nprim * (nprim + 1) / 2];
         let idx = |a: usize, b: usize| {
-            if a >= b {
-                a * (a + 1) / 2 + b
-            } else {
-                b * (b + 1) / 2 + a
-            }
+            if a >= b { a * (a + 1) / 2 + b } else { b * (b + 1) / 2 + a }
         };
         for i in 0..nato {
             let ci = atos[i].coes_norm();
@@ -315,11 +305,7 @@ fn fj(j: usize, l: usize, m: usize, aa: f64, bb: f64) -> f64 {
     for k in imin..=imax {
         let pre = fact(l) / fact(l - k) / fact(k) * fact(m) / fact(m + k - j) / fact(j - k);
         let at = if l - k != 0 { aa.powi((l - k) as i32) } else { 1.0 };
-        let bt = if m + k - j != 0 {
-            bb.powi((m + k - j) as i32)
-        } else {
-            1.0
-        };
+        let bt = if m + k - j != 0 { bb.powi((m + k - j) as i32) } else { 1.0 };
         sum += pre * at * bt;
     }
     sum
@@ -378,114 +364,6 @@ fn fmch(m: usize, x: f64, expnx: f64) -> f64 {
     approx - fimult * partsum
 }
 
-#[cfg(all(test, not(feature = "use-rsint")))]
-mod tests {
-    use super::*;
-    use crate::base::Mole;
-    use crate::rsint::hand::{Gto, IntVal1e};
-
-    /// 已有的 Rys 求积实现，作为参考
-    fn reference(ga: &Prim, gb: &Prim, rc: &[f64; 3]) -> f64 {
-        let mut ival = IntVal1e::new(Gto::new(ga.lmn, ga.alp, ga.xyz), Gto::new(gb.lmn, gb.alp, gb.xyz));
-        ival.vval_c(rc)
-    }
-
-    #[test]
-    /// 解析核引积分与 Rys 求积实现一致
-    fn test_attraction_matches_rys() {
-        let lmns = [
-            [0, 0, 0],
-            [1, 0, 0],
-            [0, 1, 0],
-            [0, 0, 1],
-            [1, 1, 0],
-            [2, 0, 0],
-            [1, 1, 1],
-            [2, 1, 0],
-            [3, 0, 0],
-            [2, 2, 0],
-        ];
-        let alps = [0.4, 1.3, 3.7, 9.1];
-        let xyz_a = [0.0, 0.0, 0.0];
-        let xyz_b = [0.8, -0.3, 0.5];
-        let rcs = [[0.0, 0.0, 0.0], [0.4, -0.9, 1.2], [2.5, 1.7, -3.1]];
-
-        for &lmn_a in lmns.iter() {
-            for &lmn_b in lmns.iter() {
-                for &alp_a in alps.iter() {
-                    for &alp_b in alps.iter() {
-                        let ga = Prim {
-                            lmn: lmn_a,
-                            alp: alp_a,
-                            xyz: xyz_a,
-                        };
-                        let gb = Prim {
-                            lmn: lmn_b,
-                            alp: alp_b,
-                            xyz: xyz_b,
-                        };
-                        let pair = PairData::new(&ga, &gb);
-                        let mut al = [0.0; MAX_COF];
-                        let mut am = [0.0; MAX_COF];
-                        let mut an = [0.0; MAX_COF];
-                        for rc in rcs.iter() {
-                            let mine = pair.attraction(rc, &mut al, &mut am, &mut an);
-                            let refr = reference(&ga, &gb, rc);
-                            assert!(
-                                (mine - refr).abs() < 1e-9 * refr.abs().max(1e-3),
-                                "lmn {lmn_a:?}/{lmn_b:?} alp {alp_a}/{alp_b} rc {rc:?}: {mine} vs {refr}"
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    /// 电子静电势与逐个收缩轨道对直接求和的实现一致
-    fn test_esp_matches_bruteforce() {
-        let mole = Mole::from_file("moles/C2H4.out");
-        let dmat = mole.coefs().get_dmat("car", &mole);
-        let esp = EspCalculator::new(&mole, dmat);
-        let atos = &mole.basis().atos().cars;
-        let xyzs = mole.atoms().xyzs();
-
-        for rc in [[0.3, 0.2, 0.1], [2.0, -1.0, 0.5], [-4.0, 3.2, 2.7]] {
-            let mut brute = 0.0;
-            for i in 0..atos.len() {
-                let ci = atos[i].coes_norm();
-                let ga_lmn = *atos[i].lmn();
-                let ga_xyz = xyzs[atos[i].atm];
-                for j in 0..atos.len() {
-                    let dij = dmat[(i, j)];
-                    if dij == 0.0 {
-                        continue;
-                    }
-                    let cj = atos[j].coes_norm();
-                    let gb_lmn = *atos[j].lmn();
-                    let gb_xyz = xyzs[atos[j].atm];
-                    let mut vij = 0.0;
-                    for (a, &ca) in ci.iter().enumerate() {
-                        for (b, &cb) in cj.iter().enumerate() {
-                            let ga = Prim {
-                                lmn: ga_lmn,
-                                alp: atos[i].alps[a],
-                                xyz: ga_xyz,
-                            };
-                            let gb = Prim {
-                                lmn: gb_lmn,
-                                alp: atos[j].alps[b],
-                                xyz: gb_xyz,
-                            };
-                            vij += ca * cb * reference(&ga, &gb, &rc);
-                        }
-                    }
-                    brute += dij * vij;
-                }
-            }
-            let mine = esp.val(&rc);
-            assert!((mine + brute).abs() < 1e-8, "rc {rc:?}: {mine} vs {}", -brute);
-        }
-    }
-}
+// TODO: 手写积分后端已存档到 docs/手写积分后端.md 并从代码移除；
+// 原先用于对照手写核引/静电势的测试依赖 crate::rsint::hand，暂不再编译。
+// 后续如需要，用 rsint 后端重写这类交叉验证测试。

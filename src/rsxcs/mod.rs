@@ -9,6 +9,11 @@
 //! [`XcFunc`]、[`RsXcs`]、[`eval_rks`]、[`eval_uks`]）对外提供，上层代码不感知
 //! 后端差异。后端实现分别在 `hand.rs`（内部）与 `rsxcs.rs`（外部库）中。
 
+use rayon::prelude::*;
+
+/// 泛函逐点求值的并行分块大小（点）
+const CHUNK_PTS: usize = 4096;
+
 mod hand;
 #[cfg(feature = "use-rsxcs")]
 mod rsxcs;
@@ -110,14 +115,7 @@ pub enum XcFunc {
 
 impl XcFunc {
     /// 全部内置泛函
-    pub const ALL: [XcFunc; 6] = [
-        XcFunc::Svwn5,
-        XcFunc::BLYP,
-        XcFunc::BP86,
-        XcFunc::PBE,
-        XcFunc::PBE0,
-        XcFunc::B3LYP,
-    ];
+    pub const ALL: [XcFunc; 6] = [XcFunc::Svwn5, XcFunc::BLYP, XcFunc::BP86, XcFunc::PBE, XcFunc::PBE0, XcFunc::B3LYP];
 
     /// 从泛函名解析（忽略大小写、连字符与下划线）
     ///
@@ -125,11 +123,7 @@ impl XcFunc {
     /// `b3lyp`；未命中且启用 `use-rsxcs` 时，再按 libxc 短名（如 `gga_x_pw91`、
     /// `hyb_gga_xc_pbeh`）解析为 [`XcFunc::External`]。
     pub fn from_name(name: &str) -> Option<Self> {
-        let key: String = name
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric())
-            .map(|c| c.to_ascii_lowercase())
-            .collect();
+        let key: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect();
         match key.as_str() {
             "lda" | "lsda" | "svwn" | "svwn5" => Some(Self::Svwn5),
             "blyp" => Some(Self::BLYP),
@@ -207,9 +201,7 @@ fn from_external_name(_name: &str) -> Option<XcFunc> {
 /// 外部泛函的名称（仅启用 `use-rsxcs` 时可解析）
 #[cfg(feature = "use-rsxcs")]
 fn external_name(id: u32) -> &'static str {
-    ::rsxcs::Functional::from_id(id)
-        .map(|f| f.info().name)
-        .unwrap_or("external")
+    ::rsxcs::Functional::from_id(id).map(|f| f.info().name).unwrap_or("external")
 }
 
 #[cfg(not(feature = "use-rsxcs"))]
@@ -275,12 +267,7 @@ const PBE_PARTS: [(XcComponent, f64); 2] = [(XcComponent::PbeX, 1.0), (XcCompone
 
 const PBE0_PARTS: [(XcComponent, f64); 2] = [(XcComponent::PbeX, 0.75), (XcComponent::PbeC, 1.0)];
 
-const B3LYP_PARTS: [(XcComponent, f64); 4] = [
-    (XcComponent::LdaX, 0.08),
-    (XcComponent::B88, 0.72),
-    (XcComponent::Lyp, 0.81),
-    (XcComponent::Vwn3, 0.19),
-];
+const B3LYP_PARTS: [(XcComponent, f64); 4] = [(XcComponent::LdaX, 0.08), (XcComponent::B88, 0.72), (XcComponent::Lyp, 0.81), (XcComponent::Vwn3, 0.19)];
 
 /// 泛函计算器
 ///
@@ -328,19 +315,43 @@ impl RsXcs {
 
         let npt = rho.len();
         assert_eq!(sigma.len(), npt, "rho 与 sigma 长度不一致");
+        if npt == 0 {
+            return (Vec::new(), Vec::new(), Vec::new());
+        }
 
-        let mut zk = vec![0.0; npt];
-        let mut vrho = vec![0.0; npt];
-        let mut vsigma = vec![0.0; npt];
-
-        // 泛函的 DFT 部分（精确交换由 KS 代码按 exact_x 单独处理）
-        for &(comp, coef) in self.func.parts() {
-            let out = eval_rks(comp, rho, sigma);
-            for i in 0..npt {
-                zk[i] += coef * out.exc[i];
-                vrho[i] += coef * out.vrho[i];
-                vsigma[i] += coef * out.vsigma[i];
-            }
+        // 泛函的 DFT 部分（精确交换由 KS 代码按 exact_x 单独处理）。
+        // 每个分量都是逐点独立的标量运算（含 exp/pow，属延迟受限），
+        // 按格点分块并行可把大分子格点部分的泛函求值时间降到 1/线程数量级。
+        let parts = self.func.parts();
+        let chunks: Vec<(Vec<f64>, Vec<f64>, Vec<f64>)> = (0..npt.div_ceil(CHUNK_PTS))
+            .into_par_iter()
+            .map(|c| {
+                let p0 = c * CHUNK_PTS;
+                let p1 = (p0 + CHUNK_PTS).min(npt);
+                let n = p1 - p0;
+                let r = &rho[p0..p1];
+                let s = &sigma[p0..p1];
+                let mut zk = vec![0.0; n];
+                let mut vrho = vec![0.0; n];
+                let mut vsigma = vec![0.0; n];
+                for &(comp, coef) in parts {
+                    let out = eval_rks(comp, r, s);
+                    for i in 0..n {
+                        zk[i] += coef * out.exc[i];
+                        vrho[i] += coef * out.vrho[i];
+                        vsigma[i] += coef * out.vsigma[i];
+                    }
+                }
+                (zk, vrho, vsigma)
+            })
+            .collect();
+        let mut zk = Vec::with_capacity(npt);
+        let mut vrho = Vec::with_capacity(npt);
+        let mut vsigma = Vec::with_capacity(npt);
+        for (a, b, c) in chunks {
+            zk.extend(a);
+            vrho.extend(b);
+            vsigma.extend(c);
         }
 
         (zk, vrho, vsigma)
@@ -357,14 +368,7 @@ impl RsXcs {
     /// - `vsigma_aa`/`vsigma_bb`/`vsigma_ab`: 能量密度对
     ///   `σ_αα = |∇ρ_α|²`、`σ_ββ = |∇ρ_β|²`、`σ_αβ = ∇ρ_α·∇ρ_β` 的导数
     #[allow(clippy::too_many_arguments)]
-    pub fn run_spin(
-        &self,
-        rho_a: &[f64],
-        rho_b: &[f64],
-        saa: &[f64],
-        sbb: &[f64],
-        sab: &[f64],
-    ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+    pub fn run_spin(&self, rho_a: &[f64], rho_b: &[f64], saa: &[f64], sbb: &[f64], sab: &[f64]) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
         if let Some(id) = self.func.external_id() {
             return external_run_uks(id, rho_a, rho_b, saa, sbb, sab);
         }
@@ -375,23 +379,53 @@ impl RsXcs {
         assert_eq!(sbb.len(), npt, "sigma_bb 长度不一致");
         assert_eq!(sab.len(), npt, "sigma_ab 长度不一致");
 
-        let mut zk = vec![0.0; npt];
-        let mut vrho_a = vec![0.0; npt];
-        let mut vrho_b = vec![0.0; npt];
-        let mut vs_aa = vec![0.0; npt];
-        let mut vs_bb = vec![0.0; npt];
-        let mut vs_ab = vec![0.0; npt];
+        if npt == 0 {
+            return (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        }
 
-        for &(comp, coef) in self.func.parts() {
-            let out = eval_uks(comp, rho_a, rho_b, saa, sbb, sab);
-            for i in 0..npt {
-                zk[i] += coef * out.exc[i];
-                vrho_a[i] += coef * out.vrho_a[i];
-                vrho_b[i] += coef * out.vrho_b[i];
-                vs_aa[i] += coef * out.vsigma_aa[i];
-                vs_bb[i] += coef * out.vsigma_bb[i];
-                vs_ab[i] += coef * out.vsigma_ab[i];
-            }
+        let parts = self.func.parts();
+        type SpinChunk = (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>);
+        let chunks: Vec<SpinChunk> = (0..npt.div_ceil(CHUNK_PTS))
+            .into_par_iter()
+            .map(|c| {
+                let p0 = c * CHUNK_PTS;
+                let p1 = (p0 + CHUNK_PTS).min(npt);
+                let n = p1 - p0;
+                let (ra, rb) = (&rho_a[p0..p1], &rho_b[p0..p1]);
+                let (saa_c, sbb_c, sab_c) = (&saa[p0..p1], &sbb[p0..p1], &sab[p0..p1]);
+                let mut zk = vec![0.0; n];
+                let mut va = vec![0.0; n];
+                let mut vb = vec![0.0; n];
+                let mut vaa = vec![0.0; n];
+                let mut vbb = vec![0.0; n];
+                let mut vab = vec![0.0; n];
+                for &(comp, coef) in parts {
+                    let out = eval_uks(comp, ra, rb, saa_c, sbb_c, sab_c);
+                    for i in 0..n {
+                        zk[i] += coef * out.exc[i];
+                        va[i] += coef * out.vrho_a[i];
+                        vb[i] += coef * out.vrho_b[i];
+                        vaa[i] += coef * out.vsigma_aa[i];
+                        vbb[i] += coef * out.vsigma_bb[i];
+                        vab[i] += coef * out.vsigma_ab[i];
+                    }
+                }
+                (zk, va, vb, vaa, vbb, vab)
+            })
+            .collect();
+        let mut zk = Vec::with_capacity(npt);
+        let mut vrho_a = Vec::with_capacity(npt);
+        let mut vrho_b = Vec::with_capacity(npt);
+        let mut vs_aa = Vec::with_capacity(npt);
+        let mut vs_bb = Vec::with_capacity(npt);
+        let mut vs_ab = Vec::with_capacity(npt);
+        for (a, b, c, d, e, f) in chunks {
+            zk.extend(a);
+            vrho_a.extend(b);
+            vrho_b.extend(c);
+            vs_aa.extend(d);
+            vs_bb.extend(e);
+            vs_ab.extend(f);
         }
 
         (zk, vrho_a, vrho_b, vs_aa, vs_bb, vs_ab)
@@ -407,14 +441,7 @@ fn external_run_rks(id: u32, rho: &[f64], sigma: &[f64]) -> (Vec<f64>, Vec<f64>,
 /// 开壳层下整份外部泛函的求值（仅启用 `use-rsxcs` 时可用）
 #[cfg(feature = "use-rsxcs")]
 #[allow(clippy::too_many_arguments)]
-fn external_run_uks(
-    id: u32,
-    rho_a: &[f64],
-    rho_b: &[f64],
-    saa: &[f64],
-    sbb: &[f64],
-    sab: &[f64],
-) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+fn external_run_uks(id: u32, rho_a: &[f64], rho_b: &[f64], saa: &[f64], sbb: &[f64], sab: &[f64]) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
     rsxcs::run_uks(id, rho_a, rho_b, saa, sbb, sab)
 }
 
@@ -427,14 +454,7 @@ fn external_run_rks(_id: u32, _rho: &[f64], _sigma: &[f64]) -> (Vec<f64>, Vec<f6
 /// 未启用 `use-rsxcs` 时无法求值外部泛函
 #[cfg(not(feature = "use-rsxcs"))]
 #[allow(clippy::too_many_arguments)]
-fn external_run_uks(
-    _id: u32,
-    _rho_a: &[f64],
-    _rho_b: &[f64],
-    _saa: &[f64],
-    _sbb: &[f64],
-    _sab: &[f64],
-) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+fn external_run_uks(_id: u32, _rho_a: &[f64], _rho_b: &[f64], _saa: &[f64], _sbb: &[f64], _sab: &[f64]) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
     panic!("外部泛函需要启用 use-rsxcs 特性");
 }
 
@@ -470,11 +490,7 @@ mod tests {
             let (zk_p, _, _) = fun.run(&rho_p, &sigma0);
             let (zk_m, _, _) = fun.run(&rho_m, &sigma0);
             let num = (energy_density(&zk_p, &rho_p, i) - energy_density(&zk_m, &rho_m, i)) / (2.0 * h);
-            assert!(
-                (num - vrho[i]).abs() < 1.0e-4 * vrho[i].abs().max(1.0),
-                "vrho[{i}]: finite-difference={num}, analytic={}",
-                vrho[i]
-            );
+            assert!((num - vrho[i]).abs() < 1.0e-4 * vrho[i].abs().max(1.0), "vrho[{i}]: finite-difference={num}, analytic={}", vrho[i]);
         }
 
         // ∂(ρ·exc)/∂σ = vsigma
@@ -490,11 +506,7 @@ mod tests {
             let (zk_p, _, _) = fun.run(&rho0, &sigma_p);
             let (zk_m, _, _) = fun.run(&rho0, &sigma_m);
             let num = (energy_density(&zk_p, &rho0, i) - energy_density(&zk_m, &rho0, i)) / (2.0 * h);
-            assert!(
-                (num - vsigma[i]).abs() < 1.0e-4 * vsigma[i].abs().max(1.0),
-                "vsigma[{i}]: finite-difference={num}, analytic={}",
-                vsigma[i]
-            );
+            assert!((num - vsigma[i]).abs() < 1.0e-4 * vsigma[i].abs().max(1.0), "vsigma[{i}]: finite-difference={num}, analytic={}", vsigma[i]);
         }
     }
 
@@ -517,12 +529,7 @@ mod tests {
         for i in 0..rho.len() {
             assert!((zk[i] - zk0[i]).abs() < 1e-9, "zk[{i}]: {} vs {}", zk[i], zk0[i]);
             // ρ_α = ρ/2 ⇒ ∂E/∂ρ = (vrho_a + vrho_b)/2
-            assert!(
-                (vra[i] + vrb[i] - 2.0 * vrho0[i]).abs() < 1e-7 * vrho0[i].abs().max(1.0),
-                "vrho[{i}]: {} vs {}",
-                vra[i] + vrb[i],
-                2.0 * vrho0[i]
-            );
+            assert!((vra[i] + vrb[i] - 2.0 * vrho0[i]).abs() < 1e-7 * vrho0[i].abs().max(1.0), "vrho[{i}]: {} vs {}", vra[i] + vrb[i], 2.0 * vrho0[i]);
             // ∂E/∂σ = (v_αα + v_ββ + v_αβ)/4
             if sigma[i] != 0.0 {
                 assert!(
@@ -558,70 +565,40 @@ mod tests {
             let (mut ra_p, mut ra_m) = (rho_a0, rho_a0);
             ra_p[i] += h;
             ra_m[i] -= h;
-            let num = (energy_density(&ra_p, &rho_b0, &saa0, &sbb0, &sab0, i)
-                - energy_density(&ra_m, &rho_b0, &saa0, &sbb0, &sab0, i))
-                / (2.0 * h);
-            assert!(
-                (num - vra[i]).abs() < 1e-4 * vra[i].abs().max(1.0),
-                "vrho_a[{i}]: fd={num}, analytic={}",
-                vra[i]
-            );
+            let num = (energy_density(&ra_p, &rho_b0, &saa0, &sbb0, &sab0, i) - energy_density(&ra_m, &rho_b0, &saa0, &sbb0, &sab0, i)) / (2.0 * h);
+            assert!((num - vra[i]).abs() < 1e-4 * vra[i].abs().max(1.0), "vrho_a[{i}]: fd={num}, analytic={}", vra[i]);
 
             // ∂/∂ρ_β
             let h = 1e-6 * rho_b0[i].max(1.0);
             let (mut rb_p, mut rb_m) = (rho_b0, rho_b0);
             rb_p[i] += h;
             rb_m[i] -= h;
-            let num = (energy_density(&rho_a0, &rb_p, &saa0, &sbb0, &sab0, i)
-                - energy_density(&rho_a0, &rb_m, &saa0, &sbb0, &sab0, i))
-                / (2.0 * h);
-            assert!(
-                (num - vrb[i]).abs() < 1e-4 * vrb[i].abs().max(1.0),
-                "vrho_b[{i}]: fd={num}, analytic={}",
-                vrb[i]
-            );
+            let num = (energy_density(&rho_a0, &rb_p, &saa0, &sbb0, &sab0, i) - energy_density(&rho_a0, &rb_m, &saa0, &sbb0, &sab0, i)) / (2.0 * h);
+            assert!((num - vrb[i]).abs() < 1e-4 * vrb[i].abs().max(1.0), "vrho_b[{i}]: fd={num}, analytic={}", vrb[i]);
 
             // ∂/∂σ_αα
             let h = 1e-6 * saa0[i].max(1.0);
             let (mut s_p, mut s_m) = (saa0, saa0);
             s_p[i] += h;
             s_m[i] -= h;
-            let num = (energy_density(&rho_a0, &rho_b0, &s_p, &sbb0, &sab0, i)
-                - energy_density(&rho_a0, &rho_b0, &s_m, &sbb0, &sab0, i))
-                / (2.0 * h);
-            assert!(
-                (num - vaa[i]).abs() < 1e-4 * vaa[i].abs().max(1.0),
-                "vsigma_aa[{i}]: fd={num}, analytic={}",
-                vaa[i]
-            );
+            let num = (energy_density(&rho_a0, &rho_b0, &s_p, &sbb0, &sab0, i) - energy_density(&rho_a0, &rho_b0, &s_m, &sbb0, &sab0, i)) / (2.0 * h);
+            assert!((num - vaa[i]).abs() < 1e-4 * vaa[i].abs().max(1.0), "vsigma_aa[{i}]: fd={num}, analytic={}", vaa[i]);
 
             // ∂/∂σ_ββ
             let h = 1e-6 * sbb0[i].max(1.0);
             let (mut s_p, mut s_m) = (sbb0, sbb0);
             s_p[i] += h;
             s_m[i] -= h;
-            let num = (energy_density(&rho_a0, &rho_b0, &saa0, &s_p, &sab0, i)
-                - energy_density(&rho_a0, &rho_b0, &saa0, &s_m, &sab0, i))
-                / (2.0 * h);
-            assert!(
-                (num - vbb[i]).abs() < 1e-4 * vbb[i].abs().max(1.0),
-                "vsigma_bb[{i}]: fd={num}, analytic={}",
-                vbb[i]
-            );
+            let num = (energy_density(&rho_a0, &rho_b0, &saa0, &s_p, &sab0, i) - energy_density(&rho_a0, &rho_b0, &saa0, &s_m, &sab0, i)) / (2.0 * h);
+            assert!((num - vbb[i]).abs() < 1e-4 * vbb[i].abs().max(1.0), "vsigma_bb[{i}]: fd={num}, analytic={}", vbb[i]);
 
             // ∂/∂σ_αβ
             let h = 1e-6 * sab0[i].max(1.0);
             let (mut s_p, mut s_m) = (sab0, sab0);
             s_p[i] += h;
             s_m[i] -= h;
-            let num = (energy_density(&rho_a0, &rho_b0, &saa0, &sbb0, &s_p, i)
-                - energy_density(&rho_a0, &rho_b0, &saa0, &sbb0, &s_m, i))
-                / (2.0 * h);
-            assert!(
-                (num - vab[i]).abs() < 1e-4 * vab[i].abs().max(1.0),
-                "vsigma_ab[{i}]: fd={num}, analytic={}",
-                vab[i]
-            );
+            let num = (energy_density(&rho_a0, &rho_b0, &saa0, &sbb0, &s_p, i) - energy_density(&rho_a0, &rho_b0, &saa0, &sbb0, &s_m, i)) / (2.0 * h);
+            assert!((num - vab[i]).abs() < 1e-4 * vab[i].abs().max(1.0), "vsigma_ab[{i}]: fd={num}, analytic={}", vab[i]);
         }
     }
 
@@ -682,10 +659,7 @@ mod tests {
                 assert!(vsigma[i].is_finite(), "{func}: vsigma[{i}] 非有限值");
                 assert!(zs[i].is_finite(), "{func}: spin zk[{i}] 非有限值");
                 assert!(vra[i].is_finite() && vrb[i].is_finite(), "{func}: spin vrho 非有限值");
-                assert!(
-                    vaa[i].is_finite() && vbb[i].is_finite() && vab[i].is_finite(),
-                    "{func}: spin vsigma 非有限值"
-                );
+                assert!(vaa[i].is_finite() && vbb[i].is_finite() && vab[i].is_finite(), "{func}: spin vsigma 非有限值");
             }
         }
     }

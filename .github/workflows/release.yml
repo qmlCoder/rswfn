@@ -125,7 +125,7 @@ jobs:
       OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
       OSS_PREFIX: ${{ secrets.OSS_PREFIX }}
     steps:
-      # 下面的 OSS 步骤要跑 .github/scripts/upload_oss.py，需要先检出仓库
+      # 下面的 OSS 步骤要跑 scripts/upload_oss.py，需要先检出仓库
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
@@ -242,4 +242,4 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install --quiet --disable-pip-version-check oss2
-          python3 .github/scripts/upload_oss.py "${GITHUB_REF_NAME}" dist --installers --latest
+          python3 scripts/upload_oss.py "${GITHUB_REF_NAME}" dist --installers --latest

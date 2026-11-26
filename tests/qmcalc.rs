@@ -2,7 +2,7 @@ use rswfn::base::{Atoms, Basis, Mole, Shl};
 use rswfn::qmcal::hf::RHF;
 use rswfn::qmcal::ks::{RKS, UKS};
 use rswfn::rsxcs::XcFunc;
-use rswfn::writer::{FchWriter, Writer};
+use rswfn::writer::{FchWriter, MfnWriter, Writer};
 
 /// H2 / STO-3G（R = 1.4 bohr）的参考 HF 总能量约 -1.1167 Hartree
 /// 这个用例很快，用已知解析参考值校验积分与 SCF 主流程
@@ -31,13 +31,9 @@ fn test_rhf_h2_sto3g() {
     let atoms = Atoms::new(&vec![1, 1], &vec![[0.0, 0.0, 0.0], [0.0, 0.0, 1.4]], &vec![1.0, 1.0]);
     let mole = Mole::new(atoms, Some(Basis::new(shls, None)), None);
 
-    let res = RHF::new(&mole).run(None);
+    let res = RHF::new(&mole).run();
     assert!(res.converged, "SCF 未收敛");
-    assert!(
-        (res.total_eng() + 1.1167).abs() < 1.0e-3,
-        "H2/STO-3G 能量异常: {}",
-        res.total_eng()
-    );
+    assert!((res.total_eng() + 1.1167).abs() < 1.0e-3, "H2/STO-3G 能量异常: {}", res.total_eng());
 }
 
 /// 乙烯 RHF/6-31G(d)：检查自洽收敛、电子数和总能量
@@ -46,7 +42,7 @@ fn test_rhf_c2h4() {
     let mole = Mole::from_file("moles/C2H4.out");
     assert_eq!(mole.atoms.neles, [8, 8]);
 
-    let res = RHF::new(&mole).run(None);
+    let res = RHF::new(&mole).run();
     assert!(res.converged, "SCF 未收敛（迭代 {} 次）", res.niter);
     // DIIS 正常工作时乙烯应 10 轮以内收敛（无 DIIS 时约 19 轮）
     assert!(res.niter <= 12, "SCF 迭代次数过多: {}（DIIS 可能未生效）", res.niter);
@@ -54,13 +50,7 @@ fn test_rhf_c2h4() {
     // 乙烯 RHF/6-31G(d) 总能量约 -78.03 Hartree
     // （同一日志里的 B3LYP 能量是 -78.587，HF 因缺少相关能而高出约 0.55 Hartree）
     let total = res.total_eng();
-    assert!(
-        (total + 78.031).abs() < 0.05,
-        "总能量异常: {} Hartree（电子 {}, 核排斥 {}）",
-        total,
-        res.ele_eng,
-        res.nuc_eng
-    );
+    assert!((total + 78.031).abs() < 0.05, "总能量异常: {} Hartree（电子 {}, 核排斥 {}）", total, res.ele_eng, res.nuc_eng);
 
     // 密度矩阵应给出 16 个电子
     let calced = Mole::new(mole.atoms.clone(), Some(res.basis), Some(res.coefs));
@@ -79,10 +69,7 @@ fn test_rks_c2h4() {
 
     let total = res.total_eng();
     println!("B3LYP/6-31G(d) 乙烯总能量 = {total}（Gaussian -78.5875）");
-    assert!(
-        (total + 78.5875).abs() < 0.01,
-        "B3LYP 总能量异常: {total} Hartree（Gaussian 参考 -78.5875）"
-    );
+    assert!((total + 78.5875).abs() < 0.01, "B3LYP 总能量异常: {total} Hartree（Gaussian 参考 -78.5875）");
 
     let calced = Mole::new(mole.atoms.clone(), Some(res.basis), Some(res.coefs));
     assert_eq!(calced.coefs().obt_eles(&calced), [8, 8]);
@@ -100,17 +87,8 @@ fn test_uks_closed_shell_matches_rks() {
 
     assert!(uks.converged, "UKS 未收敛（迭代 {} 次）", uks.niter);
     println!("RKS = {}, UKS = {}", rks.total_eng(), uks.total_eng());
-    assert!(
-        (uks.total_eng() - rks.total_eng()).abs() < 1.0e-6,
-        "UKS({}) 与 RKS({}) 总能量不一致",
-        uks.total_eng(),
-        rks.total_eng()
-    );
-    assert!(
-        uks.spin_sq.abs() < 1.0e-6,
-        "闭壳层的 <S^2> 应为 0，实际 {}",
-        uks.spin_sq
-    );
+    assert!((uks.total_eng() - rks.total_eng()).abs() < 1.0e-6, "UKS({}) 与 RKS({}) 总能量不一致", uks.total_eng(), rks.total_eng());
+    assert!(uks.spin_sq.abs() < 1.0e-6, "闭壳层的 <S^2> 应为 0，实际 {}", uks.spin_sq);
 
     let calced = Mole::new(mole.atoms.clone(), Some(uks.basis), Some(uks.coefs));
     assert_eq!(calced.coefs().obt_eles(&calced), [8, 8]);
@@ -129,11 +107,7 @@ fn test_uks_open_shell() {
     let total = res.total_eng();
     assert!(res.converged, "UKS 未收敛（迭代 {} 次）", res.niter);
     println!("C6H6^- UKS 总能量 = {total}（ROB3LYP 参考 -232.1631）");
-    assert!(
-        (res.spin_sq - 0.75).abs() < 0.02,
-        "开壳层 <S^2> 偏离 0.75 过多: {}",
-        res.spin_sq
-    );
+    assert!((res.spin_sq - 0.75).abs() < 0.02, "开壳层 <S^2> 偏离 0.75 过多: {}", res.spin_sq);
     assert!((total + 232.1631).abs() < 0.05, "UKS 总能量异常: {total} Hartree");
 
     let calced = Mole::new(mole.atoms.clone(), Some(res.basis), Some(res.coefs));
@@ -159,7 +133,7 @@ fn test_uks_open_shell() {
 #[test]
 fn test_rhf_fch_roundtrip() {
     let mole = Mole::from_file("moles/C2H4.out");
-    let res = RHF::new(&mole).run(None);
+    let res = RHF::new(&mole).run();
     assert!(res.converged, "SCF 未收敛");
 
     let total_eng = res.total_eng();
@@ -180,4 +154,64 @@ fn test_rhf_fch_roundtrip() {
     assert_eq!(back.basis().shls.nato("car"), 38, "回读的基函数数量不一致");
 
     std::fs::remove_file(&path).ok();
+}
+
+/// 局部坐标系 π-only KS（LKS）：乙烯 B3LYP/6-31G(d)
+///
+/// 验证 π 约化基远小于全基组、π 电子数正确、SCF 收敛、局部系数表标签只含 π 成分，
+/// 且系数可展开回全基组并导出 fch / mwfn 后回读一致。
+#[test]
+fn test_lks_c2h4() {
+    use rswfn::qmcal::lks::LKS;
+
+    let mole = Mole::from_file("moles/C2H4.out");
+    let res = LKS::with_grid(&mole, 30, 50, XcFunc::B3LYP, None).run();
+
+    assert!(res.converged, "LKS 未收敛（迭代 {} 次）", res.niter);
+    assert_eq!(res.npi_elec, 2, "乙烯 π 电子数应为 2");
+    // 6-31G(d)：每个 C 有 2 条 p 壳层（各 1 个 π 分量）与 1 条 d 壳层（2 个 π 分量），
+    // 因此 π 约化基 = 2 × (2 + 2) = 8
+    assert_eq!(res.npi, 8, "乙烯 π 约化基大小异常: {}", res.npi);
+    assert!(res.npi < mole.basis().shls.nato("car"), "约化基应小于全基组");
+    assert_eq!(res.nocc(), 1, "乙烯 π 占据轨道数应为 1");
+    assert_eq!(res.obt_engs.len(), res.npi);
+    assert_eq!(res.cmat.shape(), [res.npi, res.npi]);
+
+    // 系数可展开回完整笛卡尔基
+    let full = res.expand_coefs(&mole);
+    assert_eq!(full.shape(), [mole.basis().shls.nato("car"), res.npi]);
+    let nz = (0..full.nrows()).filter(|&i| full[(i, 0)].abs() > 1.0e-10).count();
+    assert!(nz > 0, "占据 π 轨道展开到全局基后为空");
+
+    // 局部 π 系数表：行标签只含 π 成分
+    let table = res.mo_table_local(&mole);
+    assert!(table.contains(":PX"), "局部系数表缺少 π 标签");
+    assert_eq!(res.local_labels(&mole).len(), res.npi, "π 行标签数量应与 π 轨道数一致");
+
+    // 导出 fch 并回读
+    let out_mole = res.to_mole(&mole);
+    let fch_path = std::env::temp_dir().join("rswfn_lks_c2h4.fch");
+    let fch_str = fch_path.to_str().expect("路径转字符串失败");
+    let mut fw = FchWriter::from_mole(&out_mole);
+    fw.energy = res.ele_eng;
+    fw.charge = out_mole.charge();
+    fw.multip = out_mole.multip();
+    fw.save(fch_str);
+    let back = Mole::from_file(fch_str);
+    assert_eq!(back.basis().shls.nato("car"), mole.basis().shls.nato("car"), "fch 基函数数不一致");
+    assert_eq!(back.coefs().get_cmat("car", &back).ncols(), res.npi, "fch π 轨道数不一致");
+    assert_eq!(back.coefs().obt_eles(&back), [res.nocc(), res.nocc()], "fch π 电子数不一致");
+    std::fs::remove_file(&fch_path).ok();
+
+    // 导出 mwfn 并回读
+    let mwfn_path = std::env::temp_dir().join("rswfn_lks_c2h4.mwfn");
+    let mwfn_str = mwfn_path.to_str().expect("路径转字符串失败");
+    let mut mw = MfnWriter::from_mole(&out_mole);
+    mw.energy = res.ele_eng;
+    mw.save(mwfn_str);
+    let back = Mole::from_file(mwfn_str);
+    assert_eq!(back.basis().shls.nato("car"), mole.basis().shls.nato("car"), "mwfn 基函数数不一致");
+    assert_eq!(back.coefs().get_cmat("car", &back).ncols(), res.npi, "mwfn π 轨道数不一致");
+    assert_eq!(back.coefs().obt_eles(&back), [res.nocc(), res.nocc()], "mwfn π 电子数不一致");
+    std::fs::remove_file(&mwfn_path).ok();
 }

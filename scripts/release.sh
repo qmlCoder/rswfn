@@ -240,7 +240,7 @@ if [ "$DO_UPLOAD" = 1 ]; then
     if [ "$DO_OSS" = 1 ]; then
         log '上传到阿里云 OSS'
         python -c 'import oss2' 2>/dev/null || die '缺少 oss2：python -m pip install oss2'
-        python .github/scripts/upload_oss.py "$VER" "$DIST" --installers --latest
+        python scripts/upload_oss.py "$VER" "$DIST" --installers --latest
     fi
 
     if [ "$DO_GH" = 1 ]; then

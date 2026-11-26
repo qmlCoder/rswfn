@@ -3,7 +3,7 @@ use crate::props::orbtprop::mocv::MocvDest;
 use crate::props::orbtprop::obtmat;
 use crate::qmcal::ks;
 use crate::reader::LogReader;
-use crate::rsint::{RsInt, jk_mat};
+use crate::rsint::RsInt;
 use crate::rsxcs::XcFunc;
 use ndarray::{Array2, Axis};
 
@@ -62,22 +62,13 @@ impl<'m> Calculator<'m> {
     /// 仅支持由高斯 log/out 文件读入的分子。`Mole` 通常已带基组；若缺失，则按
     /// log 中的基组名用 `rsbse` 加载（此时返回 `Some(克隆后的分子)`）。
     pub(crate) fn prepare_log(&self) -> Result<(Option<Mole>, XcFunc), String> {
-        let path = self
-            .mole
-            .path
-            .as_deref()
-            .ok_or("分子没有来源文件路径，无法读取泛函与基组")?;
+        let path = self.mole.path.as_deref().ok_or("分子没有来源文件路径，无法读取泛函与基组")?;
         let lower = path.to_lowercase();
         if !(lower.ends_with(".log") || lower.ends_with(".out")) {
             return Err(format!("仅支持高斯 log/out 文件: {path}"));
         }
-        let job = LogReader::new(path)
-            .read_gau_job()
-            .ok_or("无法从 log 文件中解析作业关键词")?;
-        let func_name = job
-            .functional
-            .as_deref()
-            .ok_or("log 中未识别到交换相关泛函（可能为 HF，或本库不支持的泛函）")?;
+        let job = LogReader::new(path).read_gau_job().ok_or("无法从 log 文件中解析作业关键词")?;
+        let func_name = job.functional.as_deref().ok_or("log 中未识别到交换相关泛函（可能为 HF，或本库不支持的泛函）")?;
         let func = XcFunc::from_name(func_name).ok_or_else(|| format!("log 中的泛函不受支持: {func_name}"))?;
 
         if self.mole.is_open() {
@@ -89,8 +80,7 @@ impl<'m> Calculator<'m> {
 
         let owned_mole = if self.mole.basis.is_none() {
             let basis_name = job.basis_set.as_deref().ok_or("log 中未识别到基组名")?;
-            let basis = crate::rsbse::from_name(basis_name, &self.mole.atoms)
-                .ok_or_else(|| format!("无法加载基组: {basis_name}"))?;
+            let basis = crate::rsbse::from_name(basis_name, &self.mole.atoms).ok_or_else(|| format!("无法加载基组: {basis_name}"))?;
             let mut mole = self.mole.clone();
             mole.basis = Some(basis);
             Some(mole)
@@ -115,11 +105,7 @@ impl<'m> Calculator<'m> {
 
         // π 投影密度矩阵 D_π = 2·C_occ^π·(C_occ^π)ᵀ
         let mut mole_pi = mole.clone();
-        mole_pi
-            .coefs
-            .as_mut()
-            .ok_or("分子没有轨道系数")?
-            .set_cmat(cmat_form, cmat_pi, mole);
+        mole_pi.coefs.as_mut().ok_or("分子没有轨道系数")?.set_cmat(cmat_form, cmat_pi, mole);
         let cmat_pi_form = mole_pi.coefs().get_cmat(form, &mole_pi);
         let coef_pi = cmat_pi_form.select(Axis(1), &occ);
         let dmat_pi = coef_pi.dot(&coef_pi.t()) * 2.0;
@@ -130,11 +116,15 @@ impl<'m> Calculator<'m> {
         let int_caler = RsInt::new(mole);
         let [_smat, tmat, vmat] = int_caler.mat1e([1, 1, 1], form);
         let hmat = &tmat + &vmat;
-        let emat = int_caler.mat2e(form);
 
-        // J、K 对 D 线性：分别对 D_π、D_σ 求，再相加得总
-        let (j_pi, k_pi) = jk_mat(&dmat_pi, &emat);
-        let (j_sig, k_sig) = jk_mat(&dmat_sig, &emat);
+        // J、K 对 D 线性：分别对 D_π、D_σ 求，再相加得总。
+        // 双电子部分走壳层块引擎（Schwarz 筛选 + 并行）。
+        let (j_pi, k_pi, j_sig, k_sig) = {
+            let engine = crate::rsint::Engine::new(mole, form, 1.0e-11, 8 * 1024 * 1024 * 1024);
+            let (j_pi, k_pi) = engine.jk(&dmat_pi);
+            let (j_sig, k_sig) = engine.jk(&dmat_sig);
+            (j_pi, k_pi, j_sig, k_sig)
+        };
         let j_tot = &j_pi + &j_sig;
         let k_tot = &k_pi + &k_sig;
 

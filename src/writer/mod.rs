@@ -2,6 +2,7 @@ mod cub;
 mod dmo;
 mod fch;
 mod gjf;
+mod mfn;
 mod obj;
 mod xyz;
 
@@ -9,6 +10,7 @@ pub use cub::CubWriter;
 pub use dmo::DmoWriter;
 pub use fch::FchWriter;
 pub use gjf::GjfWriter;
+pub use mfn::MfnWriter;
 pub use obj::ObjWriter;
 pub use xyz::XyzWriter;
 

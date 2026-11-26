@@ -1,12 +1,11 @@
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use ndarray::{Array1, Array2, s};
 
 use crate::base::{Basis, Coefs, Mole};
 // 实现HF方法，根据结构和基组信息，计算得到波函数
-use crate::rsint::{Mat2e, RsInt};
-use crate::{maths, props::atomprop, rsint};
+use crate::maths;
+use crate::rsint::RsInt;
 
 use super::diis::Diis;
 
@@ -28,6 +27,8 @@ pub struct RHFResult {
     pub time_int2e: Duration,
     /// SCF 迭代耗时
     pub time_scf: Duration,
+    /// SCF 中 J/K 构造的累计耗时
+    pub time_jk: Duration,
     /// 分子轨道系数
     pub coefs: Coefs,
     /// 与系数形式一致、可直接用于后续分析的基组
@@ -47,14 +48,16 @@ impl RHFResult {
 pub struct RHF<'m> {
     /// 分子结构引用
     pub mole: &'m Mole,
-    /// 是否使用局部坐标系
-    pub use_lstm: bool,
     /// 积分形式("sph"或"car")，由基组自动决定
     pub int_form: String,
     /// 最大SCF迭代次数
     pub max_iter: usize,
     /// 收敛阈值（相邻两次迭代的能量变化，Hartree）
     pub tol: f64,
+    /// Schwarz 筛选阈值（双电子积分）
+    pub screen: f64,
+    /// 双电子积分块允许占用的最大内存（字节），超过则退化为直接 SCF
+    pub max_mem: usize,
 }
 
 /// 根据闭壳层占据轨道系数与电子积分矩阵计算电子能量
@@ -72,24 +75,17 @@ impl<'m> RHF<'m> {
     pub fn new(mole: &'m Mole) -> Self {
         Self {
             mole,
-            use_lstm: false,
             int_form: mole.basis().int_form().to_string(),
             max_iter: 100,
             tol: 1e-8,
+            screen: 1.0e-11,
+            max_mem: 8 * 1024 * 1024 * 1024,
         }
     }
 
     /// 计算核-核排斥能
     pub fn nuc_eng(&self) -> f64 {
-        let natm = self.mole.atoms.len();
-        let nucs = self.mole.atoms.nucs();
-        let mut eng = 0.0;
-        for i in 0..natm.saturating_sub(1) {
-            for j in i + 1..natm {
-                eng += (nucs[i] * nucs[j]) as f64 / self.mole.atoms.dist(i, j);
-            }
-        }
-        eng
+        self.mole.atoms.nuc_eng()
     }
 
     // 计算闭壳层密度矩阵 D = 2 * C_occ C_occ^T
@@ -98,18 +94,11 @@ impl<'m> RHF<'m> {
         coef.dot(&coef.t()) * 2.0
     }
 
-    // 由双电子积分和密度矩阵构造库伦矩阵 J 与交换矩阵 K
-    fn calc_jk(&self, dmat: &Array2<f64>, emat: &Mat2e) -> (Array2<f64>, Array2<f64>) {
-        rsint::jk_mat(dmat, emat)
-    }
-
     /// 执行闭壳层HF自洽场计算
     ///
     /// 通过迭代求解Roothaan方程,收敛后返回能量、分子轨道系数和对应的基组。
     ///
-    /// # 参数
-    /// - `emat`: 可选的双电子积分,不提供时内部自动计算
-    pub fn run(&self, emat: Option<Mat2e>) -> RHFResult {
+    pub fn run(&self) -> RHFResult {
         let mole = self.mole;
         let [nela, nelb] = mole.atoms.neles;
         assert_eq!(nela, nelb, "RHF 仅支持闭壳层体系：α电子数({nela}) ≠ β电子数({nelb})");
@@ -118,50 +107,34 @@ impl<'m> RHF<'m> {
         assert!(nocc > 0, "分子没有电子，无法进行 HF 计算");
 
         let ints = RsInt::new(mole);
-        let (mat1e, emat, time_int1e, time_int2e) = if self.use_lstm {
-            log::info!("使用局部坐标系");
-            let mut dir_caler = atomprop::direction::Calculator::new(mole);
-            let mut stms = HashMap::new();
-            for atm in 0..mole.atoms.len() {
-                let stm = dir_caler.LCS(atm, None).expect("局部坐标系生成失败");
-                stms.insert(atm, stm);
-            }
-            let t_int1e = Instant::now();
-            let mat1e = ints.mat1e_lcs(&stms, [1, 1, 1]);
-            let time_int1e = t_int1e.elapsed();
-            let (mat2e, time_int2e) = match emat {
-                Some(emat) => (emat, Duration::ZERO),
-                None => {
-                    let t_int2e = Instant::now();
-                    let mat2e = ints.mat2e_lcs(&stms);
-                    (mat2e, t_int2e.elapsed())
-                }
-            };
-            (mat1e, mat2e, time_int1e, time_int2e)
-        } else {
-            let t_int1e = Instant::now();
-            let mat1e = ints.mat1e([1, 1, 1], &self.int_form);
-            let time_int1e = t_int1e.elapsed();
-            let (mat2e, time_int2e) = match emat {
-                Some(emat) => (emat, Duration::ZERO),
-                None => {
-                    let t_int2e = Instant::now();
-                    let mat2e = ints.mat2e(&self.int_form);
-                    (mat2e, t_int2e.elapsed())
-                }
-            };
-            (mat1e, mat2e, time_int1e, time_int2e)
-        };
+        let t_int1e = Instant::now();
+        let mat1e = ints.mat1e([1, 1, 1], &self.int_form);
+        let time_int1e = t_int1e.elapsed();
+        // 双电子积分：走壳层块引擎（并行 + Schwarz 筛选）
+        let t_int2e = Instant::now();
+        let engine = crate::rsint::Engine::new(mole, &self.int_form, self.screen, self.max_mem);
+        let time_int2e = t_int2e.elapsed();
+        log::info!(
+            "双电子积分: {} 个壳层块, {:.2} GB{}",
+            engine.nblock,
+            engine.mem_bytes as f64 / 1e9,
+            if engine.is_direct() { "（直接 SCF：不缓存积分）" } else { "" }
+        );
         let [smat, tmat, vmat] = mat1e;
         let nato = smat.shape()[0];
         assert!(nocc <= nato, "基函数数量({nato})不足以容纳 {nocc} 个占据轨道");
         let xmat = maths::matrix_nhalf(&smat);
         let hmat = &tmat + &vmat;
 
-        // 核心哈密顿量作为初猜
+        // 初猜：叠加原子密度（SAD）；不可用时退回核心哈密顿量
         let (mut obt_engs, cmat_guess) = maths::eigh(&xmat.dot(&hmat).dot(&xmat));
         let mut cmat = xmat.dot(&cmat_guess);
         let mut dmat = self.calc_rdmat(nele, &cmat);
+        if crate::qmcal::guess::use_sad_enabled() {
+            if let Some(d) = crate::qmcal::guess::sad_dmat(&smat, &hmat, &crate::qmcal::guess::ao_owners(mole, &self.int_form), mole.atoms.nucs(), nele) {
+                dmat = d;
+            }
+        }
         let nuc_eng = self.nuc_eng();
 
         let mut ele_eng = f64::INFINITY;
@@ -170,9 +143,12 @@ impl<'m> RHF<'m> {
         let mut niter = 0;
         let mut diis = Diis::new(8);
         let t_scf = Instant::now();
+        let mut time_jk = Duration::ZERO;
         for i in 1..=self.max_iter {
             niter = i;
-            let (jmat, kmat) = self.calc_jk(&dmat, &emat);
+            let t_jk = Instant::now();
+            let (jmat, kmat) = engine.jk(&dmat);
+            time_jk += t_jk.elapsed();
             let fmat = &hmat + &jmat - &kmat * 0.5;
             // 能量始终用与当前密度一致的 Fock 矩阵计算
             let eng = rhf_ele_eng(&dmat, &hmat, &fmat);
@@ -229,6 +205,7 @@ impl<'m> RHF<'m> {
             time_int1e,
             time_int2e,
             time_scf,
+            time_jk,
             coefs,
             basis,
             form: self.int_form.clone(),
@@ -274,49 +251,11 @@ impl<'m> UHF<'m> {
         [dmat_a, dmat_b]
     }
 
-    fn calc_ufork(
-        // 计算fork矩阵
-        &self,
-        nmat: usize,
-        tmat: &Array2<f64>,      // 动能矩阵
-        vmat: &Array2<f64>,      // 势能矩阵
-        dmat: &[Array2<f64>; 2], // 密度矩阵
-        emat: &Mat2e,            // 双电子积分矩阵
-    ) -> [Array2<f64>; 2] {
-        // 计算Fork矩阵
-
-        let fmat_a = Array2::zeros((nmat, nmat));
-        let fmat_b = Array2::zeros((nmat, nmat));
-        let mut fmat = [fmat_a, fmat_b];
-        let hmat = tmat + vmat;
-        let dmat_sum = &dmat[0] + &dmat[1];
-        let mut jsum;
-        let mut csum;
-        for s in 0..2usize {
-            for i in 0..nmat {
-                for j in 0..nmat {
-                    jsum = 0.0; // 库伦矩阵元
-                    csum = 0.0; // 交换矩阵元
-                    for k in 0..nmat {
-                        for l in 0..nmat {
-                            jsum += emat.get(i, j, k, l) * dmat_sum[(k, l)];
-                            csum += emat.get(i, k, j, l) * dmat[s][(k, l)];
-                        }
-                    }
-                    fmat[s][(i, j)] = hmat[(i, j)] + jsum - csum;
-                }
-            }
-        }
-
-        return fmat;
-    }
-
     /// 计算开壳层HF的自洽场
     ///
     /// 迭代求解Pople-Nesbet方程,返回α和β电子的能量、轨道能量和系数矩阵。
     pub fn calc_uhf(&self) -> ([f64; 2], [Array1<f64>; 2], [Array2<f64>; 2]) {
-        let atos = &self.mole.basis().atos().sphs;
-        let nato = atos.len();
+        let nato = self.mole.basis().shls.nato("car");
         let cmat_a = Array2::zeros((nato, nato));
         let cmat_b = Array2::zeros((nato, nato));
         let mut cmat = [cmat_a, cmat_b];
@@ -327,7 +266,14 @@ impl<'m> UHF<'m> {
 
         let rs_int = RsInt::new(self.mole);
         let [smat, tmat, vmat] = rs_int.mat1e([1, 1, 1], "car");
-        let emat = rs_int.mat2e("car");
+        // 双电子部分：走壳层块引擎（并行 + Schwarz 筛选）
+        let engine = crate::rsint::Engine::new(self.mole, "car", 1.0e-11, 8 * 1024 * 1024 * 1024);
+        log::info!(
+            "双电子积分: {} 个壳层块, {:.2} GB{}",
+            engine.nblock,
+            engine.mem_bytes as f64 / 1e9,
+            if engine.is_direct() { "（直接 SCF：不缓存积分）" } else { "" }
+        );
 
         let xmat = maths::matrix_nhalf(&smat);
         let mut eng = [0.0; 2];
@@ -341,7 +287,12 @@ impl<'m> UHF<'m> {
             for c in 0..2 {
                 dmat[c] = &dmat[c] * (1.0 - beta) + &new_dmat[c] * beta;
             }
-            let fmat = self.calc_ufork(nato, &tmat, &vmat, &dmat, &emat);
+            let fmat = {
+                let d_tot = &dmat[0] + &dmat[1];
+                let (jmat, kmat_a, kmat_b) = engine.jk_spin(&d_tot, &dmat[0], &dmat[1]);
+                let hmat = &tmat + &vmat;
+                [&hmat + &jmat - &kmat_a, &hmat + &jmat - &kmat_b]
+            };
             for c in 0..2usize {
                 let slice = &fmat[c];
                 let fmat_ = xmat.dot(slice).dot(&xmat);

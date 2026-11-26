@@ -1,5 +1,152 @@
 # 变更记录
 
+## 2026-11-26 发布 v0.2.0
+
+- 版本 0.1.3 → 0.2.0（`Cargo.toml`、`Cargo.lock`；README/docs 里「已发布 / 最新版本」
+  与示例命令同步）。0.1 → 0.2 走 minor：本次删除了 `use-rsint` 特性、`rsint` 改为必选，
+  对依赖 `--no-default-features` / `use-rsint` 的使用者是破坏性变更。
+- `Cargo.toml` 的 `exclude` 与 `.gitignore` 增加 `/dist`：`scripts/release.sh` 的产物目录
+  不再进入 crate 包，也让发布后的 `cargo publish` 能在干净工作区进行。
+- 发布方式：本地交叉编译（Windows 本机 + WSL 三个 Linux 目标）→ OSS + GitHub Release
+  → crates.io。
+
+## 2026-11-26 把 upload_oss.py 从 .github/scripts 移到 scripts
+
+- `.github/scripts/upload_oss.py` → `scripts/upload_oss.py`：OSS 上传脚本是本地发布
+  流程的一部分（`scripts/release.sh` 调用它），不属于 GitHub Actions，放在顶层 `scripts/`
+  更合理。
+- 脚本内 `repo_root = Path(__file__).resolve().parents[2]` 改为 `parents[1]`（文件上移
+  一层后仓库根少一级），`load_dotenv()` 与 `rewrite_installers()` 两处同步修改。
+- 更新所有调用方与文档引用：`scripts/release.sh`、`.github/workflows/mirror-oss.yml`、
+  `.github/workflows/release.yml`（含注释）、`.gitignore` 注释、`docs/install.md` §5/§11。
+- 删除空的 `.github/scripts/` 目录；`.github` 现在只剩 workflows。
+- 验证：`python scripts/upload_oss.py` 打印用法（rc=2）；`rewrite_installers()` 能正确
+  读到仓库根的 `install.sh` / `install.ps1` 并改写基址。
+
+## 2026-11-26 README 把阿里云 OSS 一行安装提升为独立小节
+
+- `README.md` 英文安装部分原先把 OSS 镜像安装命令藏在 `Note` 里；现改为与 GitHub
+  平级的两个 `####` 小节：「From GitHub Releases (default)」和「From the Aliyun OSS
+  mirror (no GitHub access needed)」，各自给出 Windows / Linux 一行命令。
+- `Note` 只保留「尚无 release / 用 `cargo install` / 各平台产物范围」，并指向
+  `docs/install.md` §5 的镜像布局说明。
+- 仅文档改动，未改安装脚本、上传脚本或发布流程；相关能力早已存在：`install.sh`
+  的 `resolve_latest_from_mirror`、`install.ps1` 的 `Get-MirrorLatestVersion`、
+  `.github/scripts/upload_oss.py`（发布时用 `--installers --latest` 刷新镜像）。
+
+## 2026-11-26 手写积分后端存档为文档并从代码库移除
+
+- 把手写高斯积分后端 `src/rsint/hand.rs` 全文存档到 `docs/手写积分后端.md`
+  （作为曾经手写实现积分的历史记录），随后从代码库删除该文件。
+- `rsint` crate 变为**必选**：`Cargo.toml` 中 `rsint = "0.1.2"` 去掉 `optional`，
+  删除 `use-rsint` 特性；`default = ["use-rsxcs", "use-rsbse"]`。
+- 清理所有 `#[cfg(feature = "use-rsint")]` / `cfg(not(...))` 双分支，统一走 `Engine`：
+  - `src/rsint/mod.rs`：删除 `mod hand`、占位 `Engine`、手写 `mat1e`/`mat2e`/`mat2e_lcs`、
+    `jk_mat_spin`；`Mat2e` 去掉 `nval`/`idxs`/`check`/`from_mat4`/`into_mat4`，只留
+    `nato`/`vals` + `new`/`get`/`set`/`get_by_pair`。
+  - `src/qmcal/hf.rs`：RHF/UHF 无条件用 `Engine::jk`/`jk_spin`，删除 `calc_ufork`、`legacy_emat`。
+  - `src/qmcal/ks.rs`：RKS/UKS 同理，删除 `legacy_emat` 与 `jk_mat`/`jk_mat_spin` 回退分支。
+  - `src/qmcal/lks.rs`：删除 `subemat` 与 `mat2e_lcs` 回退，只用 `Engine::mat2e_local_pi`。
+  - `src/props/moleprop/energy.rs`、`src/props/bondprop/energy_v1.rs`：只保留 `Engine::jk`。
+- `src/rsint/esp.rs`：删除依赖 `hand` 的两个对照单元测试（留 TODO）；
+  `README.md` 与 `docs/静电势.md` 同步去掉 `use-rsint` / `--no-default-features` 相关说明。
+- 保留 `Mat2e` 与 `jk_mat`：LKS 的 π 子块仍以 `Mat2e` 承载（`Engine::mat2e_local_pi`
+  + `jk_mat`）；若要彻底删除需改成“π 块存储 + J/K 直接收缩”，本次不做。
+- 验证：`cargo check --all-targets` 通过；`tests/qmcalc`（含 RKS≈UKS 差 ~1e-13、C6H6^-）、
+  `tests/energy` 全过。
+
+## 2026-11-26 删除 RHF 的 use_lstm 与全维 packed 双电子积分构造
+
+- `RHF` 去掉 `use_lstm`（字段与局域坐标系分支），`RHF::run` 不再接收 `Option<Mat2e>`，
+  默认构建恒走 `Engine`。涉及 `src/qmcal/hf.rs`、`src/service/qmcal.rs`、`tests/qmcalc.rs`。
+- 删除 `RsInt::mat2e`（`use-rsint` 下的全维 packed 构造）与 `Rsint::calc_int2e_packed`；
+  `mat2e_lcs` 改为仅手写后端可用（`cfg(not(use-rsint))`）。
+- `ks.rs` 的 RKS/UKS 也改成 `cfg` 分支（去掉 `Option<Engine>` 占位与 `None => jk_mat`
+  死分支），默认构建不再引用 `mat2e`/`jk_mat`；`hf.rs` 同理。
+- 保留 `Mat2e` 与 `jk_mat`/`jk_mat_spin`：LKS 的 π 子块仍以 `Mat2e` 承载
+  （`Engine::mat2e_local_pi` + `jk_mat`），手写后端也用它。
+- `--no-default-features` 仍可用（手写积分 + `mat2e` + `mat2e_lcs`），已验证 H2/STO-3G。
+- 验证：默认/无默认两种特性均编译；`tests/qmcalc` 7 项全过；
+  `--no-default-features` 的 H2 测试通过。
+
+## 2026-11-26 UKS / UHF / 能量分解接入 Engine（全部双电子走壳层块）
+
+- **UKS**（`qmcal/ks.rs`）：双电子积分改用 `Engine::jk_spin`（总密度算 J，α/β 分别算 K），
+  保留 `--no-default-features` 的 `jk_mat_spin` 回退；新增 `time_jk`/`time_grid`。
+  同时把 RKS 的「显著 AO」分块筛选扩展到自旋情形
+  （`calc_rho_spin_ao` / `calc_xcmat_spin_ao`），服务层给 UKS 也设置 `ao_cut`
+  并输出「显著 AO」与「SCF 细分」。
+- **UHF**（`qmcal/hf.rs` 的 `UHF`）：改用 `Engine::jk_spin`；顺手修正原实现
+  “`nato` 取球谐而积分用笛卡尔”的不一致（统一为 `car`）；手写后端保留
+  `calc_ufork` 回退。
+- **能量分解**（`props/moleprop/energy.rs`、`props/bondprop/energy_v1.rs`）：J/K 改走
+  `Engine::jk`，不再构造完整 `Mat2e`；手写后端回退 `jk_mat`。
+- 至此，所有涉及双电子积分的计算（RHF、RKS、LKS、UKS、UHF、π/键能量分解）都复用
+  同一套壳层块引擎（Schwarz 筛选 + 分块 J/K，闭壳层/开壳层分别 `jk`/`jk_spin`）。
+- 验证：默认特性与 `--no-default-features` 均编译通过；`tests/qmcalc` 7 项全过
+  （闭壳层 UKS 与 RKS 总能量差 1.1e-13；开壳层 C6H6^- 正常）；`tests/energy` 2 项全过
+  （从 93 s 降到 35 s）。release 实测苯酚阳离子（117 基函数，UKS，99×590 剪枝 +
+  显著 AO）：双电子 0.35 s、J/K 累计 5.4 s、总 40 s（格点 33.7 s，共 45 轮）。
+
+## 2026-11-26 LKS 改用 KS 的积分引擎 + 抽出共享格点函数
+
+- `src/qmcal/ks.rs` 抽出共享函数：`grid_rho` / `grid_xcmat` / `rdmat`（`pub(crate)`），
+  RKS 的 `calc_rho`/`calc_xcmat`/`calc_rdmat` 改为薄封装；LKS 复用同一套 GEMM 化的
+  格点积分，不再各自维护一份 ρ/∇ρ/XC 矩阵实现。
+- 新增 `Engine::mat2e_local_pi`（`src/rsint/engine.rs`）：复用已 Schwarz 筛选的壳层块，
+  逐块按归一化因子 + libcint→高斯置换还原，再沿 4 个方向做
+  `(Ti⊗Tj) G (Tk⊗Tl)ᵀ` 的小矩阵变换，最后只取 π 分量写入 `nπ` 维 `Mat2e`；
+  s 壳层（无 π 分量）整块跳过。**不再做全维 4 指标变换**，也不再构造完整 `Mat2e`。
+- `LKS` 结构改为扁平 `chi0`/`chi1`（`[p*npi+i]` / `[p*3*npi+r*npi+i]`），并保存
+  `ts`（每壳层局部变换）与 `pi_comp`；`run()` 用 `Engine` 构建 π 双电子积分，单电子
+  仍用 `mat1e_lcs` + `submat`，SCF 逻辑不变。
+- `--no-default-features`（手写积分后端）保留回退：LKS 用旧的 `mat2e_lcs` + `subemat`，
+  保证可编译、可运行。
+- CLI `qmcal lks` 新增 `--screen --max-mem --conv --maxiter`；`service::qmcal` 新增
+  `lks_with(..., &ScfOptions)`，`lks` 保留为默认参数包装。
+- 删除 `mat2e` 里遗留的 `println!("使用rsint")`（会污染 stdout / `--json`）。
+- 效果（release）：ph2（22 原子 / 230 基函数 / nπ=58）LKS 从“长时间无响应
+  （旧全维变换：小时级 + 约 6 GB）”降到 **4.9 s**（双电子 3.2 s、SCF 1.1 s、格点 0.4 s）；
+  乙烯 LKS 的能量与系数与旧变换路径逐项一致（差 ~1e-12，迭代数相同）。
+
+## 2026-11-26 采纳 sxf 服务器的加速计算改造
+
+把 `sxf:/home/fly/rswfn-work` 上做的 HF/DFT 加速尝试并入主线（原性能报告见该目录的
+`docs/性能优化与G16对比.md`）。迁移时按主线已有的 `props::gridprop` / `service`
+分层做了路径与日志适配，没有整树覆盖。
+
+- **壳层块双电子积分引擎**（新增 `src/rsint/engine.rs`，`use-rsint` 下导出 `Engine`）：
+  按壳层四元组连续存储、Schwarz 筛选、并行填充；J/K 用稠密分块点积（闭壳层 6 次点积、
+  简并时枚举 8 个置换去重）；筛选后仍超过 `--max-mem` 时自动退化为直接 SCF。
+  实测 C12H26 HF 从 O(N⁴) 9.3 GB 降到 3.08 GB，C18H38 从 45 GB 降到 7.63 GB。
+- **HF**（`qmcal/hf.rs`）：优先走 `Engine`；局域坐标系、调用方给 `Mat2e`、或未启用
+  `use-rsint` 时退回旧的 `Mat2e` 路径。新增 `screen`/`max_mem` 字段与 `time_jk`。
+- **KS**（`qmcal/ks.rs`）：格点由 `Vec<Vec<f64>>` 压平为连续 `chi0`/`chi1`；ρ、∇ρ、
+  XC 矩阵改为按格点分块 GEMM；新增径向-角向剪枝（`with_grid_prune`，默认开启）；
+  新增「显著原子轨道」按格点块筛选（`ao_cut`，RKS）；新增 `time_jk`/`time_grid`。
+  顺带补了 `UKS::with_grid_prune`。
+- **SAD 初猜**（新增 `src/qmcal/guess.rs`）：逐原子求核心哈密顿量块并叠加电子密度；
+  失败时退回核心哈密顿量。`RSWFN_GUESS=core` 可强制退回（A/B 对照用）。
+- **并行 XC 求值**（`src/rsxcs/mod.rs`）：按 4096 点分块用 rayon 并行求泛函，
+  数值与串行逐位一致。
+- **格点模块**（`props/gridprop/dftgrid.rs`）：新增 `mol_grids_meta` / `atm_grids_meta` /
+  `prune_nang_r`，返回每个格点的所属原子与半径；`RSWFN_RAD_SCALE` 可调径向缩放。
+- **CLI / service**：`qmcal hf` 增加 `--screen --max-mem --conv --maxiter`；
+  `qmcal dft` 增加 `--radial --angular --no-prune --ao-cut --screen --max-mem --conv --maxiter`。
+  `service/qmcal` 新增 `ScfOptions`/`GridOptions`（默认 99×590 剪枝 + `ao-cut 12`），
+  保留 `hf`/`dft` 旧签名作为 `hf_with`/`dft_with` 的默认参数包装。报告里补充
+  「显著 AO」字段和「SCF 细分（J/K、格点）」耗时。
+- **修正原实现的调试断言**：`Engine::call_cint` 原按 libcint 习惯断言返回值为 0，但
+  rsint 的 `cint2e_sph` 返回的是 `(empty == 0)`（正常算出为 1），只在 release（
+  `debug_assert` 被编译掉）下才没暴露；现改为忽略返回值。
+- 注意默认格点从 100×74 改为 99×590 + 剪枝（对齐 Gaussian UltraFine）；单点能会与旧
+  版本有差异（乙烯 B3LYP/6-31G(d)：旧 ~-78.5875 → 新 -78.5874593）。
+- 验证：`cargo check --all-targets`（默认特性与 `--no-default-features` 均通过）；
+  `cargo test --test qmcalc` 7 项全过（含 SAD/引擎路径）；
+  `qmcal hf -i moles/C2H4.out` 总能量 -78.0310681238；
+  `qmcal dft -i moles/C2H4.out` 总能量 -78.5874592519（Gaussian -78.5875），
+  格点 99×590 剪枝后 121212 点。
+
 ## 2026-11-26 安装到 sxf 服务器（192.168.31.200）+ musl 静态链接修复
 
 - 目标机：`sxf`（192.168.31.200, `fly`），Ubuntu 24.04 / x86_64，无 Rust 工具链。

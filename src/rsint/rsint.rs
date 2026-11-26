@@ -5,11 +5,9 @@
 // 0.1.1 起内置纯 Rust 的 C 运行时 shim, build.rs 也补上了 Windows 分支,
 // 可以直接在 Windows 上构建。
 //
-// 注意: `rsint` 目前只能在 `nightly-2025-02-01` 工具链上编译, 因此该后端由
-// `use-rsint` feature 控制且默认关闭。
+// 注意: rsint 0.1.2 起可在 stable 工具链（含 Windows/MSVC）上编译，本库固定使用该后端。
 #![allow(non_snake_case)]
 
-use super::Mat2e;
 use crate::base::Mole;
 use ndarray::{Array, Array2, Array4, ShapeBuilder, s};
 use std::f64::consts::PI;
@@ -135,14 +133,7 @@ impl<'m> Rsint<'m> {
             [vals_sph, vals_car]
         };
 
-        Self {
-            mole,
-            atm,
-            bas,
-            env,
-            nato,
-            fixs,
-        }
+        Self { mole, atm, bas, env, nato, fixs }
     }
 
     /// 获取校正系数
@@ -215,130 +206,6 @@ impl<'m> Rsint<'m> {
         mat2e
     }
 
-    /// 计算双电子积分并直接写入压缩存储（利用 (ij|kl) 的 8 重置换对称）
-    ///
-    /// 与 [`Rsint::calc_int2e`] 相比：
-    /// - 只遍历规范化代表元（`i >= j`、`k >= l`、`(ij) >= (kl)`），
-    ///   积分计算量降为 1/8；
-    /// - 不再分配 `nato⁴` 的稠密中间数组（例如 102 个基函数时就是 864 MB），
-    ///   内存占用和访存量都大幅下降；
-    /// - 归一化因子按 libcint 的原始顺序施加，壳层内分量直接写到高斯顺序。
-    pub fn calc_int2e_packed(&self, form: &str) -> Mat2e {
-        let (nmat, fix, nums) = match form {
-            "sph" => (self.nato[0], &self.fixs[0], [1usize, 3, 5, 7, 9, 11, 13]),
-            "car" => (self.nato[1], &self.fixs[1], [1usize, 3, 6, 10, 15, 21, 28]),
-            _ => panic!("Invalid form"),
-        };
-        let natm = self.atm.len() / 6;
-        let nbas = self.bas.len() / 8;
-
-        // 每个壳层的起始轨道位置、分量数，以及 libcint 顺序 -> 高斯顺序的置换
-        let mut locs = vec![0usize; nbas];
-        let mut dims = vec![0usize; nbas];
-        let mut perms: Vec<Vec<usize>> = Vec::with_capacity(nbas);
-        let mut loc = 0usize;
-        for i in 0..nbas {
-            let ang = self.bas[i * 8 + 1] as usize;
-            locs[i] = loc;
-            dims[i] = nums[ang];
-            loc += nums[ang];
-            // len2idxs 给出 高斯位置 -> libcint 位置，这里取逆
-            let idx = len2idxs(dims[i]);
-            let mut perm = vec![0usize; dims[i]];
-            for (gauss, libcint) in idx.iter().enumerate() {
-                perm[*libcint] = gauss;
-            }
-            perms.push(perm);
-        }
-        assert_eq!(loc, nmat, "基函数数量与 nato 不一致");
-
-        let mut emat = Mat2e::new(nmat);
-        let mut opt: *mut CINTOpt = std::ptr::null_mut();
-        unsafe {
-            match form {
-                "sph" => cint2e_sph_optimizer(
-                    &mut opt,
-                    self.atm.as_ptr() as *mut c_int,
-                    natm as c_int,
-                    self.bas.as_ptr() as *mut c_int,
-                    nbas as c_int,
-                    self.env.as_ptr() as *mut c_double,
-                ),
-                _ => cint2e_cart_optimizer(
-                    &mut opt,
-                    self.atm.as_ptr() as *mut c_int,
-                    natm as c_int,
-                    self.bas.as_ptr() as *mut c_int,
-                    nbas as c_int,
-                    self.env.as_ptr() as *mut c_double,
-                ),
-            }
-
-            for i in 0..nbas {
-                for j in 0..=i {
-                    let pij = i * (i + 1) / 2 + j;
-                    for k in 0..nbas {
-                        for l in 0..=k {
-                            let pkl = k * (k + 1) / 2 + l;
-                            // 8 重对称：(ij|kl) = (ji|kl) = (ij|lk) = (kl|ij) = ...
-                            // 只算满足 i>=j、k>=l、(ij)>=(kl) 的代表元
-                            if pij < pkl {
-                                continue;
-                            }
-                            let (ui, uj, uk, ul) = (locs[i], locs[j], locs[k], locs[l]);
-                            let (di, dj, dk, dl) = (dims[i], dims[j], dims[k], dims[l]);
-                            let mut buf = vec![0.0f64; di * dj * dk * dl];
-                            let mut shls = [i as c_int, j as c_int, k as c_int, l as c_int];
-                            match form {
-                                "sph" => cint2e_sph(
-                                    buf.as_mut_ptr(),
-                                    shls.as_mut_ptr(),
-                                    self.atm.as_ptr() as *mut c_int,
-                                    natm as c_int,
-                                    self.bas.as_ptr() as *mut c_int,
-                                    nbas as c_int,
-                                    self.env.as_ptr() as *mut c_double,
-                                    opt,
-                                ),
-                                _ => cint2e_cart(
-                                    buf.as_mut_ptr(),
-                                    shls.as_mut_ptr(),
-                                    self.atm.as_ptr() as *mut c_int,
-                                    natm as c_int,
-                                    self.bas.as_ptr() as *mut c_int,
-                                    nbas as c_int,
-                                    self.env.as_ptr() as *mut c_double,
-                                    opt,
-                                ),
-                            };
-                            let (pi, pj, pk, pl) = (&perms[i], &perms[j], &perms[k], &perms[l]);
-                            for a in 0..di {
-                                let fa = fix[ui + a];
-                                let ga = ui + pi[a];
-                                for b in 0..dj {
-                                    let fab = fa * fix[uj + b];
-                                    let gb = uj + pj[b];
-                                    for c in 0..dk {
-                                        let fabc = fab * fix[uk + c];
-                                        let gc = uk + pk[c];
-                                        let base = a + di * (b + dj * (c + dk * 0));
-                                        for d in 0..dl {
-                                            let val = buf[base + di * dj * dk * d] * fabc * fix[ul + d];
-                                            emat.set(ga, gb, gc, ul + pl[d], val);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // cint2e 与 optimizer 各自定义了布局相同的 CINTOpt, 这里做一次裸指针转换
-            CINTdel_optimizer(&mut opt as *mut *mut CINTOpt as *mut *mut ::rsint::src::optimizer::CINTOpt);
-        }
-        emat
-    }
-
     /// 将单电子积分的原子轨道顺序转为和高斯一致
     fn ord_int1e(&self, mat1e_raw: &Array2<f64>, form: &str) -> Array2<f64> {
         let mut mat1e_fix = mat1e_raw.clone();
@@ -390,8 +257,7 @@ impl<'m> Rsint<'m> {
                             for j in 0..lenj {
                                 for k in 0..lenk {
                                     for l in 0..lenl {
-                                        mat2e_fix[(ui + i, uj + j, uk + k, ul + l)] =
-                                            mat2e_raw[(ui + idxi[i], uj + idxj[j], uk + idxk[k], ul + idxl[l])];
+                                        mat2e_fix[(ui + i, uj + j, uk + k, ul + l)] = mat2e_raw[(ui + idxi[i], uj + idxj[j], uk + idxk[k], ul + idxl[l])];
                                     }
                                 }
                             }
@@ -449,8 +315,7 @@ fn calc_int1e_sph(nato: usize, atm: &[i32], bas: &[i32], env: &[f64], cals: [usi
                         std::ptr::null_mut(),
                     );
                     let buf_array = Array::from_shape_vec(shape.f(), buf.clone()).unwrap();
-                    smat.slice_mut(s![loci..loci + dimi, locj..locj + dimj])
-                        .assign(&buf_array);
+                    smat.slice_mut(s![loci..loci + dimi, locj..locj + dimj]).assign(&buf_array);
                 }
                 if cals[1] == 1 {
                     // 计算动能积分
@@ -464,8 +329,7 @@ fn calc_int1e_sph(nato: usize, atm: &[i32], bas: &[i32], env: &[f64], cals: [usi
                         env.as_ptr() as *mut c_double,
                     );
                     let buf_array = Array::from_shape_vec(shape.f(), buf.clone()).unwrap();
-                    tmat.slice_mut(s![loci..loci + dimi, locj..locj + dimj])
-                        .assign(&buf_array);
+                    tmat.slice_mut(s![loci..loci + dimi, locj..locj + dimj]).assign(&buf_array);
                 }
                 if cals[2] == 1 {
                     // 计算核引积分
@@ -480,8 +344,7 @@ fn calc_int1e_sph(nato: usize, atm: &[i32], bas: &[i32], env: &[f64], cals: [usi
                         std::ptr::null_mut(),
                     );
                     let buf_array = Array::from_shape_vec(shape.f(), buf.clone()).unwrap();
-                    vmat.slice_mut(s![loci..loci + dimi, locj..locj + dimj])
-                        .assign(&buf_array);
+                    vmat.slice_mut(s![loci..loci + dimi, locj..locj + dimj]).assign(&buf_array);
                 }
             }
         }
@@ -534,8 +397,7 @@ fn calc_int1e_car(nato: usize, atm: &[i32], bas: &[i32], env: &[f64], cals: [usi
                         std::ptr::null_mut(),
                     );
                     let buf_array = Array::from_shape_vec(shape.f(), buf.clone()).unwrap();
-                    smat.slice_mut(s![loci..loci + dimi, locj..locj + dimj])
-                        .assign(&buf_array);
+                    smat.slice_mut(s![loci..loci + dimi, locj..locj + dimj]).assign(&buf_array);
                 }
                 if cals[1] == 1 {
                     // 计算动能积分
@@ -549,8 +411,7 @@ fn calc_int1e_car(nato: usize, atm: &[i32], bas: &[i32], env: &[f64], cals: [usi
                         env.as_ptr() as *mut c_double,
                     );
                     let buf_array = Array::from_shape_vec(shape.f(), buf.clone()).unwrap();
-                    tmat.slice_mut(s![loci..loci + dimi, locj..locj + dimj])
-                        .assign(&buf_array);
+                    tmat.slice_mut(s![loci..loci + dimi, locj..locj + dimj]).assign(&buf_array);
                 }
                 if cals[2] == 1 {
                     // 计算核引积分
@@ -565,8 +426,7 @@ fn calc_int1e_car(nato: usize, atm: &[i32], bas: &[i32], env: &[f64], cals: [usi
                         std::ptr::null_mut(),
                     );
                     let buf_array = Array::from_shape_vec(shape.f(), buf.clone()).unwrap();
-                    vmat.slice_mut(s![loci..loci + dimi, locj..locj + dimj])
-                        .assign(&buf_array);
+                    vmat.slice_mut(s![loci..loci + dimi, locj..locj + dimj]).assign(&buf_array);
                 }
             }
         }
@@ -591,14 +451,7 @@ fn calc_int2e_sph(nmat: usize, atm: &[i32], bas: &[i32], env: &[f64]) -> Array4<
     let mut emat = Array4::<f64>::zeros((nmat, nmat, nmat, nmat).f()); // 双电子积分矩阵
     let mut opt: *mut CINTOpt = std::ptr::null_mut();
     unsafe {
-        cint2e_sph_optimizer(
-            &mut opt,
-            atm.as_ptr() as *mut c_int,
-            natm as c_int,
-            bas.as_ptr() as *mut c_int,
-            nbas as c_int,
-            env.as_ptr() as *mut c_double,
-        );
+        cint2e_sph_optimizer(&mut opt, atm.as_ptr() as *mut c_int, natm as c_int, bas.as_ptr() as *mut c_int, nbas as c_int, env.as_ptr() as *mut c_double);
 
         let mut dims = vec![0 as usize; nbas]; // 每个基函数的原子轨道数量
         for i in 0..nbas {
@@ -635,13 +488,7 @@ fn calc_int2e_sph(nmat: usize, atm: &[i32], bas: &[i32], env: &[f64]) -> Array4<
                         );
                         let shape = (dimi, dimj, dimk, diml);
                         let buf_array = Array::from_shape_vec(shape.f(), buf).unwrap();
-                        emat.slice_mut(s![
-                            loci..loci + dimi,
-                            locj..locj + dimj,
-                            lock..lock + dimk,
-                            locl..locl + diml
-                        ])
-                        .assign(&buf_array);
+                        emat.slice_mut(s![loci..loci + dimi, locj..locj + dimj, lock..lock + dimk, locl..locl + diml]).assign(&buf_array);
                     }
                 }
             }
@@ -669,14 +516,7 @@ fn calc_int2e_car(nmat: usize, atm: &[i32], bas: &[i32], env: &[f64]) -> Array4<
     let mut emat = Array4::<f64>::zeros((nmat, nmat, nmat, nmat).f()); // 双电子积分矩阵
     let mut opt: *mut CINTOpt = std::ptr::null_mut();
     unsafe {
-        cint2e_cart_optimizer(
-            &mut opt,
-            atm.as_ptr() as *mut c_int,
-            natm as c_int,
-            bas.as_ptr() as *mut c_int,
-            nbas as c_int,
-            env.as_ptr() as *mut c_double,
-        );
+        cint2e_cart_optimizer(&mut opt, atm.as_ptr() as *mut c_int, natm as c_int, bas.as_ptr() as *mut c_int, nbas as c_int, env.as_ptr() as *mut c_double);
 
         let mut dims = vec![0 as usize; nbas]; // 每个基函数的原子轨道数量
         for i in 0..nbas {
@@ -713,13 +553,7 @@ fn calc_int2e_car(nmat: usize, atm: &[i32], bas: &[i32], env: &[f64]) -> Array4<
                         );
                         let shape = (dimi, dimj, dimk, diml);
                         let buf_array = Array::from_shape_vec(shape.f(), buf).unwrap();
-                        emat.slice_mut(s![
-                            loci..loci + dimi,
-                            locj..locj + dimj,
-                            lock..lock + dimk,
-                            locl..locl + diml
-                        ])
-                        .assign(&buf_array);
+                        emat.slice_mut(s![loci..loci + dimi, locj..locj + dimj, lock..lock + dimk, locl..locl + diml]).assign(&buf_array);
                     }
                 }
             }

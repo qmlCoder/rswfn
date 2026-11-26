@@ -46,6 +46,11 @@ It can be used both as a **library** and as a **CLI / TUI** application.
 
 ### One-line install (prebuilt binary, no Rust toolchain needed)
 
+Both mirrors below install the same prebuilt binaries, verify them against
+`SHA256SUMS`, and need no Rust toolchain.
+
+#### From GitHub Releases (default)
+
 Windows (PowerShell):
 
 ```powershell
@@ -58,8 +63,26 @@ Linux (x86_64 and aarch64):
 curl -fsSL https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh | sh
 ```
 
-The scripts download a prebuilt binary from GitHub Releases, verify it against
-`SHA256SUMS`, and install it:
+#### From the Aliyun OSS mirror (no GitHub access needed)
+
+Handy when GitHub is slow or unreachable (for example on many networks in
+mainland China). The OSS-hosted installers resolve the latest version from the
+mirror's `latest.txt` and never contact GitHub:
+
+Windows (PowerShell):
+
+```powershell
+irm https://wmview.oss-cn-hangzhou.aliyuncs.com/rswfn/install.ps1 | iex
+```
+
+Linux:
+
+```sh
+curl -fsSL https://wmview.oss-cn-hangzhou.aliyuncs.com/rswfn/install.sh | sh
+```
+
+Both installers download the matching archive from the chosen mirror, verify it
+against `SHA256SUMS`, and install the binary:
 
 | Platform | Archive | Default install directory |
 | --- | --- | --- |
@@ -76,18 +99,12 @@ glibc ≥ 2.39, so older systems may print a version warning there — the stati
 build is the safe default). The Windows binary uses the static CRT: it is a
 single self-contained `.exe` with no `vcruntime140.dll` dependency.
 
-> **Note:** the one-line installers read the release assets from GitHub
-> Releases. If no release is available yet — or if you prefer building from
-> source — use `cargo install rswfn` (version 0.1.3 is published on crates.io).
+> **Note:** if no release is available yet — or if you prefer building from
+> source — use `cargo install rswfn` (version 0.2.0 is published on crates.io).
 > Only Windows x86_64 and Linux x86_64/aarch64 have prebuilt binaries; Windows
-> ARM64 and macOS have none.
->
-> Every release is also mirrored to Aliyun OSS, which needs no GitHub access:
-> `curl -fsSL https://wmview.oss-cn-hangzhou.aliyuncs.com/rswfn/install.sh | sh`
-> (Windows: `irm https://wmview.oss-cn-hangzhou.aliyuncs.com/rswfn/install.ps1 | iex`).
-> See
+> ARM64 and macOS have none. See
 > [docs/install.md](https://github.com/qmlCoder/rswfn/blob/main/docs/install.md#5-离线安装与镜像)
-> for the OSS layout and options.
+> for the mirror layout and options.
 
 Options (pin a version, choose the install directory, force a Linux target,
 uninstall, or install from a mirror):
@@ -95,20 +112,20 @@ uninstall, or install from a mirror):
 ```sh
 # Linux: arguments after `sh -s --` are passed to the installer
 base=https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh
-curl -fsSL "$base" | sh -s -- --version 0.1.3
+curl -fsSL "$base" | sh -s -- --version 0.2.0
 curl -fsSL "$base" | sh -s -- --dir "$HOME/bin"
 curl -fsSL "$base" | sh -s -- --target x86_64-unknown-linux-gnu
 curl -fsSL "$base" | sh -s -- --uninstall
-curl -fsSL "$base" | sh -s -- --version 0.1.3 --base-url /mnt/usb/rswfn-mirror
+curl -fsSL "$base" | sh -s -- --version 0.2.0 --base-url /mnt/usb/rswfn-mirror
 ```
 
 ```powershell
 # Windows: download the script first, then run it with options
 irm https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.3
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.2.0
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Dir "D:\tools\rswfn" -NoPath
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.3 -BaseUrl D:\rswfn-mirror
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.2.0 -BaseUrl D:\rswfn-mirror
 ```
 
 The environment variables `RSWFN_VERSION`, `RSWFN_INSTALL_DIR`,
@@ -140,7 +157,7 @@ macOS):
 cargo install rswfn
 ```
 
-This builds `rswfn` from source; crates.io currently publishes version 0.1.3.
+This builds `rswfn` from source; crates.io currently publishes version 0.2.0.
 
 ### As a library
 
@@ -230,8 +247,6 @@ fn main() {
 
 ## Feature flags
 
-- `use-rsint` — use the pure-Rust `rsint` crate (a transliteration of libcint)
-  for integrals. Enabled by default and builds on stable Rust.
 - `use-rsbase` — resolve basis sets through the [`rsbse`](https://crates.io/crates/rsbse)
   Basis Set Exchange database instead of the embedded `src/rsbse/txts` files
   (`cargo build --features use-rsbase`). The data is not bundled with the crate:
@@ -242,9 +257,10 @@ fn main() {
   default; disable it (for example with `--no-default-features`) to use the
   built-in DFTxclib translation in `src/rsxcs/DFTxclib.rs` instead.
 
-All three backends are selected independently. With `use-rsint`, `use-rsbase`
-and `use-rsxcs` disabled, `rswfn` builds entirely from its in-repo
-implementations:
+The `rsint` crate (a transliteration of libcint) is always required for
+integrals and builds on stable Rust. `use-rsbase` and `use-rsxcs` are selected
+independently; with both disabled, `rswfn` builds from its in-repo basis data
+and DFTxclib implementations:
 
 ```sh
 cargo build --no-default-features
@@ -292,7 +308,7 @@ BLYP、BP86、SVWN5 可选）。另外可以在终端里直接预览分子结构
 安装动态链接的 gnu 版本（性能略好，但同样要求 glibc ≥ 2.39）。Windows 产物使用静态
 CRT，是单个 `.exe`，不依赖 `vcruntime140.dll`。
 
-注意：最新版本 0.1.3 已发布到 crates.io，预编译二进制来自 GitHub Releases（首个
+注意：最新版本 0.2.0 已发布到 crates.io，预编译二进制来自 GitHub Releases（首个
 release 为 `v0.1.1`）。Windows 目前只提供 x86_64 产物（ARM64 暂不支持），默认安装到
 `%LOCALAPPDATA%\Programs\rswfn` 并写入用户 PATH，需重开终端生效（`-NoPath` 可跳过）。
 Linux 默认安装到 `~/.local/bin`，脚本不会修改 shell 配置文件，需要自行把该目录加入

@@ -340,6 +340,18 @@ enum QmcalCmds {
         /// 输出 .fch 波函数文件路径（可选）
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// 双电子积分 Schwarz 筛选阈值（越大越快、精度越低）
+        #[arg(long = "screen", default_value = "1e-11")]
+        screen: f64,
+        /// 双电子积分块内存上限（MB），超过后自动退化为直接 SCF
+        #[arg(long = "max-mem", default_value = "8000")]
+        max_mem: usize,
+        /// SCF 能量收敛阈值（Hartree）
+        #[arg(long = "conv", default_value = "1e-8")]
+        conv: f64,
+        /// 最大 SCF 迭代次数
+        #[arg(long = "maxiter", default_value = "100")]
+        maxiter: usize,
     },
     /// 密度泛函计算（默认 B3LYP，局部相关用 VWN3，与 Gaussian 一致）
     ///
@@ -358,6 +370,66 @@ enum QmcalCmds {
         /// 输出 .fch 波函数文件路径（可选）
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// 径向格点数（默认 99，对应 Gaussian 的 UltraFine）
+        #[arg(long = "radial", default_value = "99")]
+        radial: usize,
+        /// 球面（Lebedev）格点数（默认 590，对应 Gaussian 的 UltraFine）
+        #[arg(long = "angular", default_value = "590")]
+        angular: usize,
+        /// 关闭径向-角向剪枝（默认开启：格点数约为不剪枝的 1/4）
+        #[arg(long = "no-prune", default_value = "false")]
+        no_prune: bool,
+        /// 格点积分中显著原子轨道的距离截断（Bohr；默认 12，设为 0 关闭）
+        #[arg(long = "ao-cut", default_value = "12")]
+        ao_cut: f64,
+        /// 双电子积分 Schwarz 筛选阈值（越大越快、精度越低）
+        #[arg(long = "screen", default_value = "1e-11")]
+        screen: f64,
+        /// 双电子积分块内存上限（MB），超过后自动退化为直接 SCF
+        #[arg(long = "max-mem", default_value = "8000")]
+        max_mem: usize,
+        /// SCF 能量收敛阈值（Hartree）
+        #[arg(long = "conv", default_value = "1e-8")]
+        conv: f64,
+        /// 最大 SCF 迭代次数
+        #[arg(long = "maxiter", default_value = "60")]
+        maxiter: usize,
+    },
+    /// 局部坐标系下的 π-only 密度泛函计算（MOCV，π 约化基，矩阵显著变小）
+    ///
+    /// 仅保留局部坐标系中 π 对称的原子轨道，得到的能量是 π 子系统模型值，
+    /// 不是分子总能量。
+    Lks {
+        /// 输入文件路径（需包含坐标；基组可由文件提供，或用 -b 指定）
+        #[arg(short, long)]
+        input: PathBuf,
+        /// 基组名（使用程序提供的基组数据，如 6-31G(d,p)、def2-SVP），指定后忽略文件中的基组
+        #[arg(short = 'b', long = "basis")]
+        basis: Option<String>,
+        /// 交换相关泛函：内置名（b3lyp/pbe0/pbe/blyp/bp86/svwn5，lda 为 svwn5 别名）
+        #[arg(short = 'f', long = "func", default_value = "b3lyp")]
+        func: String,
+        /// π 电子数（缺省时按参与共轭的 p 轨道数量估计）
+        #[arg(long = "npi-elec")]
+        npi_elec: Option<usize>,
+        /// 输出波函数文件路径（.fch/.fchk 或 .mwfn；系数已展开回全局基）
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// 打印局部坐标系下的 π 分子轨道系数表
+        #[arg(long = "print-mo")]
+        print_mo: bool,
+        /// 双电子积分 Schwarz 筛选阈值（越大越快、精度越低）
+        #[arg(long = "screen", default_value = "1e-11")]
+        screen: f64,
+        /// 双电子积分块内存上限（MB），超过后自动退化为直接模式
+        #[arg(long = "max-mem", default_value = "8000")]
+        max_mem: usize,
+        /// SCF 能量收敛阈值（Hartree）
+        #[arg(long = "conv", default_value = "1e-8")]
+        conv: f64,
+        /// 最大 SCF 迭代次数
+        #[arg(long = "maxiter", default_value = "60")]
+        maxiter: usize,
     },
 }
 
@@ -557,7 +629,70 @@ fn run_gridprop(cmd: &GridpropCmds) -> Result<Report, String> {
 
 fn run_qmcal(cmd: &QmcalCmds) -> Result<Report, String> {
     match cmd {
-        QmcalCmds::Hf { input, basis, output } => qmcal::hf(input, basis.as_deref(), output.as_deref()),
-        QmcalCmds::Dft { input, basis, func, output } => qmcal::dft(input, basis.as_deref(), func, output.as_deref()),
+        QmcalCmds::Hf {
+            input,
+            basis,
+            output,
+            screen,
+            max_mem,
+            conv,
+            maxiter,
+        } => {
+            let opts = service::qmcal::ScfOptions {
+                screen: *screen,
+                max_mem_mb: *max_mem,
+                conv: *conv,
+                max_iter: *maxiter,
+            };
+            qmcal::hf_with(input, basis.as_deref(), output.as_deref(), &opts)
+        }
+        QmcalCmds::Dft {
+            input,
+            basis,
+            func,
+            output,
+            radial,
+            angular,
+            no_prune,
+            ao_cut,
+            screen,
+            max_mem,
+            conv,
+            maxiter,
+        } => {
+            let opts = service::qmcal::ScfOptions {
+                screen: *screen,
+                max_mem_mb: *max_mem,
+                conv: *conv,
+                max_iter: *maxiter,
+            };
+            let grid = service::qmcal::GridOptions {
+                radial: *radial,
+                angular: *angular,
+                prune: !*no_prune,
+                ao_cut: *ao_cut,
+            };
+            qmcal::dft_with(input, basis.as_deref(), func, output.as_deref(), &opts, &grid)
+        }
+        QmcalCmds::Lks {
+            input,
+            basis,
+            func,
+            npi_elec,
+            output,
+            print_mo,
+            screen,
+            max_mem,
+            conv,
+            maxiter,
+        } => {
+            let opts = service::qmcal::ScfOptions {
+                screen: *screen,
+                max_mem_mb: *max_mem,
+                conv: *conv,
+                max_iter: *maxiter,
+            };
+            qmcal::lks_with(input, basis.as_deref(), func, *npi_elec, output.as_deref(), *print_mo, &opts)
+        }
     }
 }

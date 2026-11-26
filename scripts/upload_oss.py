@@ -24,7 +24,7 @@
 所以 CI 里靠 GitHub Secrets 提供的环境变量即可，本地则把凭据放在 .env。
 
 用法：
-    python3 .github/scripts/upload_oss.py <version> [dist-dir] [--installers] [--latest]
+    python3 scripts/upload_oss.py <version> [dist-dir] [--installers] [--latest]
 
     --installers  同时发布 install.sh / install.ps1（默认下载基址改写成本镜像）
     --latest      同时更新 latest.txt 为 <version>
@@ -69,7 +69,7 @@ def content_type(path: Path) -> str:
 
 def load_dotenv() -> Path | None:
     """把 .env 里的键补进环境变量（已存在的不覆盖，所以 CI 的 secrets 优先）。"""
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[1]
     for candidate in (Path.cwd() / ".env", repo_root / ".env"):
         if not candidate.is_file():
             continue
@@ -93,7 +93,7 @@ def load_dotenv() -> Path | None:
 
 def rewrite_installers(base_url: str) -> dict[str, bytes]:
     """把安装脚本的默认下载基址改写成本镜像，返回 {对象名: 内容}。"""
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[1]
 
     sh_line = f"{SH_BASE_PREFIX}'{base_url}'"
     ps1_line = f"{PS1_BASE_PREFIX}'{base_url}'"

@@ -8,7 +8,7 @@ use ndarray::{Array2, Axis};
 use crate::base::Mole;
 use crate::props::moleprop::energy as mole_energy;
 use crate::qmcal::ks;
-use crate::rsint::{RsInt, jk_mat};
+use crate::rsint::RsInt;
 use crate::rsxcs::XcFunc;
 
 use super::energy::BondEnergy;
@@ -53,11 +53,15 @@ fn decompose(mole: &Mole, func: XcFunc, atm1: usize, atm2: usize) -> BondEnergy 
     let int_caler = RsInt::new(mole);
     let [_smat, tmat, vmat] = int_caler.mat1e([1, 1, 1], form);
     let hmat = &tmat + &vmat;
-    let emat = int_caler.mat2e(form);
 
-    // J、K 对 D 线性：分别对 D_bond、D_rest 求，再相加得总
-    let (j_bond, k_bond) = jk_mat(&dmat_bond, &emat);
-    let (j_rest, k_rest) = jk_mat(&dmat_rest, &emat);
+    // J、K 对 D 线性：分别对 D_bond、D_rest 求，再相加得总。
+    // 双电子部分走壳层块引擎（Schwarz 筛选 + 并行）。
+    let (j_bond, k_bond, j_rest, k_rest) = {
+        let engine = crate::rsint::Engine::new(mole, form, 1.0e-11, 8 * 1024 * 1024 * 1024);
+        let (j_bond, k_bond) = engine.jk(&dmat_bond);
+        let (j_rest, k_rest) = engine.jk(&dmat_rest);
+        (j_bond, k_bond, j_rest, k_rest)
+    };
     let j_tot = &j_bond + &j_rest;
     let k_tot = &k_bond + &k_rest;
 

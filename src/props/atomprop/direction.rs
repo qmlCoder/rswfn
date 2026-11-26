@@ -8,8 +8,8 @@ use ndarray::Array2;
 
 use crate::base::{Mole, Stm, Vec3};
 use crate::datas;
-use crate::props::gridprop;
 use crate::maths;
+use crate::props::gridprop;
 
 /// 原子局部方向与法向量计算器。
 ///
@@ -289,11 +289,7 @@ impl<'m> Calculator<'m> {
                     Some(neb) => {
                         // 如果有相邻原子
                         let v_bond = (atoms.get(neb).vec() - atom.vec()).normalize();
-                        let v_norm = if v_bond.angle(&v_norm).abs() < 0.1 {
-                            Vec3::rand()
-                        } else {
-                            v_norm
-                        };
+                        let v_norm = if v_bond.angle(&v_norm).abs() < 0.1 { Vec3::rand() } else { v_norm };
                         let v_join = v_norm.cross(&v_bond).normalize();
                         let v_norm = v_bond.cross(&v_join).normalize(); // 重新正交化
                         [v_norm, v_join, v_bond]
@@ -302,11 +298,7 @@ impl<'m> Calculator<'m> {
                         if nebs.len() == 1 {
                             let v_bond: Vec3 = atoms.vec(atm, nebs[0]).normalize(); // 这个是确定的，键轴的方向
                             // 如果vx和vz在同一个方向，则重新整个vz
-                            let v_norm = if v_bond.angle(&v_norm).abs() < 0.01 {
-                                Vec3::rand()
-                            } else {
-                                v_norm
-                            };
+                            let v_norm = if v_bond.angle(&v_norm).abs() < 0.01 { Vec3::rand() } else { v_norm };
                             let v_join = v_norm.cross(&v_bond).normalize();
                             let v_norm = v_bond.cross(&v_join).normalize(); // 重新正交化
                             // log::info!("原子:{},v_bond:{},v_join:{},v_norm:{}", atm + 1, v_bond, v_join, v_norm);
@@ -338,7 +330,7 @@ impl<'m> Calculator<'m> {
                 let ey: [f64; 3] = v_join.into_arr();
                 let ez: [f64; 3] = v_bond.into_arr();
                 let stm = Stm::new(ex, ey, ez);
-                log::info!("atm:{}", atm);
+                // log::info!("atm:{}", atm);
                 if !stm.check() {
                     log::error!("局部坐标系有误");
                 }
@@ -587,11 +579,7 @@ impl<'m> Calculator<'m> {
             rmse
         }
         // 方向初猜
-        let init_dirs: Vec<Vec3> = datas::lebedev::ld0014()
-            .0
-            .iter()
-            .map(|dir| Vec3::from_arr(*dir))
-            .collect();
+        let init_dirs: Vec<Vec3> = datas::lebedev::ld0014().0.iter().map(|dir| Vec3::from_arr(*dir)).collect();
         let bond_dirs: Vec<Vec3> = {
             let atoms = self.mole.atoms();
             let nebs = atoms.nebs(atm);

@@ -79,13 +79,7 @@ impl Stm {
         let ex = es[0];
         let ey = es[1];
         let ez = es[2];
-        Self {
-            ex,
-            ey,
-            ez,
-            mat,
-            non: false,
-        }
+        Self { ex, ey, ez, mat, non: false }
     }
 
     /// 局部坐标系B在局部坐标系A中的朝向
@@ -121,21 +115,13 @@ impl Stm {
         for _ in 0..10 {
             let rand = Vec3::rand().into_arr();
             let dot = rand[0] * axis[0] + rand[1] * axis[1] + rand[2] * axis[2];
-            let orth = [
-                rand[0] - dot * axis[0],
-                rand[1] - dot * axis[1],
-                rand[2] - dot * axis[2],
-            ];
+            let orth = [rand[0] - dot * axis[0], rand[1] - dot * axis[1], rand[2] - dot * axis[2]];
             if maths::vec_len(&orth) > 1e-6 {
                 return maths::vec_norm(&orth);
             }
         }
         // 随机方向与 axis 几乎平行时，退化为一个确定的垂直方向
-        let other = if axis[0].abs() < 0.9 {
-            [1.0, 0.0, 0.0]
-        } else {
-            [0.0, 1.0, 0.0]
-        };
+        let other = if axis[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
         maths::vec_norm(&maths::vec_cross(axis, &other))
     }
 
@@ -351,10 +337,22 @@ impl Atoms {
         dmat
     }
 
+    /// 计算核-核排斥能（原子单位，Hartree）
+    pub fn nuc_eng(&self) -> f64 {
+        let natm = self.len();
+        let nucs = self.nucs();
+        let mut eng = 0.0;
+        for i in 0..natm.saturating_sub(1) {
+            for j in i + 1..natm {
+                eng += (nucs[i] * nucs[j]) as f64 / self.dist(i, j);
+            }
+        }
+        eng
+    }
+
     /// 返回所有原子的坐标列表（惰性初始化）
     pub fn xyzs(&self) -> &Vec<[f64; 3]> {
-        self.xyzs
-            .get_or_init(|| self.atoms.iter().map(|atom| atom.xyz).collect())
+        self.xyzs.get_or_init(|| self.atoms.iter().map(|atom| atom.xyz).collect())
     }
 
     /// 返回所有原子的坐标列表，单位转换为埃（Å）
@@ -388,31 +386,24 @@ impl Atoms {
 
     /// 每个原子的核电荷数
     pub fn nucs(&self) -> &Vec<usize> {
-        let nucs = self
-            .nucs
-            .get_or_init(|| self.atoms.iter().map(|atom| atom.nuc).collect::<Vec<usize>>());
+        let nucs = self.nucs.get_or_init(|| self.atoms.iter().map(|atom| atom.nuc).collect::<Vec<usize>>());
         nucs
     }
 
     /// 每个原子的有效核电荷数
     pub fn crgs(&self) -> &Vec<f64> {
-        let crgs = self
-            .crgs
-            .get_or_init(|| self.atoms.iter().map(|atom| atom.crg).collect::<Vec<f64>>());
+        let crgs = self.crgs.get_or_init(|| self.atoms.iter().map(|atom| atom.crg).collect::<Vec<f64>>());
         crgs
     }
 
     /// 返回所有原子的局部坐标系列表（惰性初始化）
     pub fn stms(&self) -> &Vec<Option<Stm>> {
-        self.stms
-            .get_or_init(|| self.atoms.iter().map(|atom| atom.stm.clone()).collect())
+        self.stms.get_or_init(|| self.atoms.iter().map(|atom| atom.stm.clone()).collect())
     }
 
     /// 原子索引范围 (0..natm-1)
     pub fn idxs(&self) -> &Vec<usize> {
-        let idxs = self
-            .idxs
-            .get_or_init(|| self.atoms.iter().map(|atom| atom.idx).collect::<Vec<usize>>());
+        let idxs = self.idxs.get_or_init(|| self.atoms.iter().map(|atom| atom.idx).collect::<Vec<usize>>());
         idxs
     }
 
