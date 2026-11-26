@@ -28,8 +28,54 @@ pub struct Rgb(pub u8, pub u8, pub u8);
 
 impl Rgb {
     /// 转为 ratatui 颜色
+    /// 按终端色彩能力映射成 ratatui 颜色
+    pub fn color_in(self, depth: Depth) -> Color {
+        match depth {
+            Depth::True => Color::Rgb(self.0, self.1, self.2),
+            Depth::Ansi256 => Color::Indexed(self.ansi256()),
+            Depth::Mono => Color::Reset,
+        }
+    }
+
     pub fn color(self) -> Color {
-        Color::Rgb(self.0, self.1, self.2)
+        self.color_in(Depth::True)
+    }
+
+    /// 最接近的 xterm-256 调色板索引（6×6×6 色立方 + 24 级灰阶）
+    pub fn ansi256(self) -> u8 {
+        const STEPS: [u16; 6] = [0, 95, 135, 175, 215, 255];
+
+        fn nearest(value: u8) -> usize {
+            let mut best = 0;
+            let mut best_d = u16::MAX;
+            for (i, step) in STEPS.iter().enumerate() {
+                let d = (value as u16).abs_diff(*step);
+                if d < best_d {
+                    best_d = d;
+                    best = i;
+                }
+            }
+            best
+        }
+
+        fn dist2(a: Rgb, b: Rgb) -> u32 {
+            let d = |x: u8, y: u8| (x as i32 - y as i32).unsigned_abs().pow(2);
+            d(a.0, b.0) + d(a.1, b.1) + d(a.2, b.2)
+        }
+
+        let ri = nearest(self.0);
+        let gi = nearest(self.1);
+        let bi = nearest(self.2);
+        let cube = Rgb(STEPS[ri] as u8, STEPS[gi] as u8, STEPS[bi] as u8);
+        let cube_idx = 16 + 36 * ri as u8 + 6 * gi as u8 + bi as u8;
+
+        // 灰阶 232..=255 对应 8, 18, …, 238
+        let mean = (self.0 as u32 + self.1 as u32 + self.2 as u32) / 3;
+        let gray_idx = if mean > 238 { 23 } else { (mean.saturating_sub(3) / 10).min(23) as u8 };
+        let step = 8 + 10 * gray_idx;
+        let gray = Rgb(step, step, step);
+
+        if dist2(self, gray) < dist2(self, cube) { 232 + gray_idx } else { cube_idx }
     }
 
     /// 解析 `#RRGGBB`
@@ -547,6 +593,69 @@ impl View {
     }
 }
 
+/// 终端色彩能力
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Depth {
+    /// 24 位真彩色（`38;2;r;g;b`）
+    #[default]
+    True,
+    /// 256 色（`38;5;n`）
+    Ansi256,
+    /// 无色，用 ASCII 灰度字符
+    Mono,
+}
+
+impl Depth {
+    /// 解析显式指定的色彩深度
+    pub fn parse(value: &str) -> Option<Depth> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "truecolor" | "true" | "24bit" | "rgb" => Some(Depth::True),
+            "256" | "256color" | "ansi256" | "ansi" => Some(Depth::Ansi256),
+            "mono" | "none" | "ascii" | "gray" => Some(Depth::Mono),
+            _ => None,
+        }
+    }
+
+    /// 根据环境变量推断终端能承受的色彩深度。
+    ///
+    /// 关键点：真彩色必须由终端自己支持。不支持时若仍输出 `38;2;r;g;b`，
+    /// 这些参数会被当成普通 SGR / 调色板索引重新解释，整幅图就变成随机色带
+    /// （Xshell 这类只有 256 色的终端就是这样）。
+    pub fn detect() -> Depth {
+        fn var(name: &str) -> String {
+            std::env::var(name).unwrap_or_default().to_ascii_lowercase()
+        }
+
+        let colorterm = var("COLORTERM");
+        if colorterm.contains("truecolor") || colorterm.contains("24bit") {
+            return Depth::True;
+        }
+
+        let term = var("TERM");
+        if term.contains("truecolor") || term.contains("direct") || term.contains("24bit") {
+            return Depth::True;
+        }
+
+        // 已知支持 24 位色的终端，但它们不一定在 TERM/COLORTERM 里声明
+        let program = var("TERM_PROGRAM");
+        if matches!(program.as_str(), "iterm.app" | "wezterm" | "vscode" | "kitty" | "hyper" | "tabby" | "ghostty" | "warpterminal") {
+            return Depth::True;
+        }
+        // Windows Terminal 与新版 conhost 都支持 24 位色，而它们的 TERM 可能为空
+        if !var("WT_SESSION").is_empty() {
+            return Depth::True;
+        }
+
+        if term == "dumb" {
+            return Depth::Mono;
+        }
+        if term.is_empty() {
+            return if cfg!(windows) { Depth::True } else { Depth::Mono };
+        }
+        Depth::Ansi256
+    }
+}
+
 /// 单个字符格：上半块颜色、下半块颜色、可选覆盖字符（元素符号）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Cell {
@@ -566,6 +675,18 @@ impl Cell {
     }
 }
 
+/// 无色模式下按亮度映射的 ASCII 灰度字符
+fn mono_char(cell: &Cell) -> char {
+    const RAMP: [char; 10] = [' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'];
+    if let Some((ch, _)) = cell.over {
+        return ch;
+    }
+    // 背景色（很暗）一律留白，否则整幅图会铺满 '.' 看不出分子轮廓
+    let lum = cell.top.mix(cell.bottom, 0.5).lum();
+    let idx = if lum < 0.10 { 0 } else { (((lum - 0.10) / 0.90 * 9.0).round() as usize).clamp(1, 9) };
+    RAMP[idx]
+}
+
 /// 渲染好的字符帧。
 #[derive(Debug, Clone)]
 pub struct Frame {
@@ -577,8 +698,19 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// 生成 ratatui 文本行（TUI 用）
-    pub fn lines(&self) -> Vec<Line<'static>> {
+    /// 生成 ratatui 文本行（TUI 用），按终端色彩能力着色
+    pub fn lines_in(&self, depth: Depth) -> Vec<Line<'static>> {
+        if depth == Depth::Mono {
+            return (0..self.height as usize)
+                .map(|row| {
+                    let mut text = String::with_capacity(self.width as usize);
+                    for col in 0..self.width as usize {
+                        text.push(mono_char(&self.cells[row * self.width as usize + col]));
+                    }
+                    Line::from(text)
+                })
+                .collect();
+        }
         let w = self.width as usize;
         (0..self.height as usize)
             .map(|row| {
@@ -590,7 +722,7 @@ impl Frame {
                     if style != Some((fg, bg)) {
                         if !text.is_empty() {
                             let (f, b) = style.expect("样式存在");
-                            spans.push(Span::styled(std::mem::take(&mut text), TuiStyle::default().fg(f.color()).bg(b.color())));
+                            spans.push(Span::styled(std::mem::take(&mut text), TuiStyle::default().fg(f.color_in(depth)).bg(b.color_in(depth))));
                         }
                         style = Some((fg, bg));
                     }
@@ -598,15 +730,20 @@ impl Frame {
                 }
                 if !text.is_empty() {
                     let (f, b) = style.expect("样式存在");
-                    spans.push(Span::styled(text, TuiStyle::default().fg(f.color()).bg(b.color())));
+                    spans.push(Span::styled(text, TuiStyle::default().fg(f.color_in(depth)).bg(b.color_in(depth))));
                 }
                 Line::from(spans)
             })
             .collect()
     }
 
-    /// 生成带 ANSI 真彩色转义序列的文本（CLI 用）
-    pub fn ansi(&self) -> String {
+    /// 真彩色版本（测试与默认使用）
+    pub fn lines(&self) -> Vec<Line<'static>> {
+        self.lines_in(Depth::True)
+    }
+
+    /// 生成带 ANSI 转义序列的文本（CLI 用），按终端色彩能力着色
+    pub fn ansi_in(&self, depth: Depth) -> String {
         let w = self.width as usize;
         let mut out = String::new();
         for row in 0..self.height as usize {
@@ -614,7 +751,10 @@ impl Frame {
             for col in 0..w {
                 let (ch, fg, bg) = self.cells[row * w + col].paint();
                 if style != Some((fg, bg)) {
-                    out.push_str(&format!("\x1b[38;2;{};{};{};48;2;{};{};{}m", fg.0, fg.1, fg.2, bg.0, bg.1, bg.2));
+                    match depth {
+                        Depth::True => out.push_str(&format!("\x1b[38;2;{};{};{};48;2;{};{};{}m", fg.0, fg.1, fg.2, bg.0, bg.1, bg.2)),
+                        _ => out.push_str(&format!("\x1b[38;5;{};48;5;{}m", fg.ansi256(), bg.ansi256())),
+                    }
                     style = Some((fg, bg));
                 }
                 out.push(ch);
@@ -624,23 +764,18 @@ impl Frame {
         out
     }
 
+    /// 真彩色版本（测试与默认使用）
+    pub fn ansi(&self) -> String {
+        self.ansi_in(Depth::True)
+    }
+
     /// 无色输出：按亮度映射成 ASCII 灰度字符（重定向到文件或无色终端时用）
     pub fn plain(&self) -> String {
-        const RAMP: [char; 10] = [' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'];
         let w = self.width as usize;
         let mut out = String::new();
         for row in 0..self.height as usize {
             for col in 0..w {
-                let cell = &self.cells[row * w + col];
-                if let Some((ch, _)) = cell.over {
-                    out.push(ch);
-                    continue;
-                }
-                let color = cell.top.mix(cell.bottom, 0.5);
-                // 背景色（很暗）一律留白，否则整幅图会铺满 '.' 看不出分子轮廓
-                let lum = color.lum();
-                let idx = if lum < 0.10 { 0 } else { (((lum - 0.10) / 0.90 * 9.0).round() as usize).clamp(1, 9) };
-                out.push(RAMP[idx]);
+                out.push(mono_char(&self.cells[row * w + col]));
             }
             out.push('\n');
         }
@@ -884,7 +1019,16 @@ pub fn run(input: &Path, opts: &RenderOptions) -> Result<(), String> {
     view.angles(opts.rotate.0.to_radians(), opts.rotate.1.to_radians());
     let (width, height) = opts.canvas();
     let frame = view.render(&mol, width, height);
-    let text = if opts.color.enabled() { frame.ansi() } else { frame.plain() };
+    // 按终端能力选择色彩深度：不支持真彩色的终端（如只有 256 色的 Xshell）
+    // 若硬输出 38;2;… 会被错解成随机色带，必须降级到 256 色或纯 ASCII。
+    let text = if !opts.color.enabled() {
+        frame.plain()
+    } else {
+        match Depth::detect() {
+            Depth::Mono => frame.plain(),
+            depth => frame.ansi_in(depth),
+        }
+    };
     print!("{text}");
     Ok(())
 }
@@ -1048,6 +1192,16 @@ mod tests {
         assert_eq!(Rgb::from_hex("#8E8E8E"), Some(Rgb(142, 142, 142)));
         assert_eq!(Rgb::from_hex("00ff00"), Some(Rgb(0, 255, 0)));
         assert_eq!(Rgb::from_hex("#fff"), None);
+    }
+
+    #[test]
+    fn ansi256_quantizes_to_palette() {
+        assert_eq!(Rgb(0, 0, 0).ansi256(), 16);
+        assert_eq!(Rgb(255, 255, 255).ansi256(), 231);
+        assert_eq!(Rgb(255, 0, 0).ansi256(), 196);
+        // 灰色应当落在灰阶段（232..=255），而不是 6×6×6 色立方
+        let gray = Rgb(128, 128, 128).ansi256();
+        assert!((232..=255).contains(&gray), "灰色应落在灰阶段，实际 {gray}");
     }
 
     #[test]

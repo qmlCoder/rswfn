@@ -1016,11 +1016,22 @@ fn is_supported_file(path: &Path) -> bool {
 
 // ===== 覆盖层 =====
 
+/// 预览配色循环：真彩色 → 256 色 → 无色 ASCII
+fn next_depth(depth: viewer::Depth) -> viewer::Depth {
+    match depth {
+        viewer::Depth::True => viewer::Depth::Ansi256,
+        viewer::Depth::Ansi256 => viewer::Depth::Mono,
+        viewer::Depth::Mono => viewer::Depth::True,
+    }
+}
+
 /// 分子结构预览（F4）的界面状态
 struct ViewerState {
     title: String,
     mol: viewer::Molecule,
     view: View,
+    /// 色彩深度（`c` 键切换，影响预览的着色方式）
+    depth: viewer::Depth,
 }
 
 enum Overlay {
@@ -1305,6 +1316,7 @@ impl App {
             KeyCode::Char('s') => state.view.next_style(),
             KeyCode::Char('t') => state.view.labels = !state.view.labels,
             KeyCode::Char('d') => state.view.depth_cue = !state.view.depth_cue,
+            KeyCode::Char('c') => state.depth = next_depth(state.depth),
             KeyCode::Char('1') => state.view.angles(0.0, 0.0),
             KeyCode::Char('2') => state.view.angles(pi, 0.0),
             KeyCode::Char('3') => state.view.angles(0.0, pi),
@@ -1644,7 +1656,12 @@ impl App {
             .unwrap_or_else(|| header.formula.clone());
         let title = format!("{} · {} 个原子", name, header.natoms);
         let mol = header.mol.clone();
-        self.overlay = Some(Overlay::Viewer(ViewerState { title, mol, view: View::default() }));
+        self.overlay = Some(Overlay::Viewer(ViewerState {
+            title,
+            mol,
+            view: View::default(),
+            depth: viewer::Depth::detect(),
+        }));
     }
 
     fn set_current_file(&mut self, path: PathBuf) {
@@ -1914,7 +1931,7 @@ impl App {
                 let block = Block::new()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan))
-                    .style(Style::default().bg(viewer::BG.color()))
+                    .style(Style::default().bg(viewer::BG.color_in(state.depth)))
                     .title(format!(" 分子结构预览 · {} · {} ", state.title, state.view.style.name()));
                 let inner = block.inner(popup);
                 frame.render_widget(block, popup);
@@ -1924,7 +1941,7 @@ impl App {
                     width: inner.width,
                     height: inner.height.saturating_sub(1),
                 };
-                let lines = state.view.render(&state.mol, art.width, art.height).lines();
+                let lines = state.view.render(&state.mol, art.width, art.height).lines_in(state.depth);
                 frame.render_widget(Paragraph::new(lines), art);
                 if inner.height >= 1 && inner.width > 8 {
                     let footer = Rect {
@@ -1933,8 +1950,8 @@ impl App {
                         width: inner.width,
                         height: 1,
                     };
-                    let hint = " ↑↓←→ 旋转  +/- 缩放  s 模型  t 标签  d 景深  1/2/3 视角  r 复位  Esc 关闭";
-                    let paragraph = Paragraph::new(Line::from(Span::styled(hint, Style::default().fg(Color::Gray)))).style(Style::default().bg(viewer::BG.color()));
+                    let hint = " ↑↓←→ 旋转  +/- 缩放  s 模型  t 标签  d 景深  c 配色  1/2/3 视角  r 复位  Esc 关闭";
+                    let paragraph = Paragraph::new(Line::from(Span::styled(hint, Style::default().fg(Color::Gray)))).style(Style::default().bg(viewer::BG.color_in(state.depth)));
                     frame.render_widget(paragraph, footer);
                 }
             }

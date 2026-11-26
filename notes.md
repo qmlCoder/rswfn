@@ -1,5 +1,24 @@
 # 变更记录
 
+## 2026-11-26 预览兼容不支持真彩色的终端（Xshell）
+
+- 现象：在 Xshell 里结构预览整屏变成随机彩色横条，看不出分子。
+- 原因：`Frame::ansi()` / `Frame::lines()` 无条件输出 24 位真彩色 SGR
+  （`38;2;r;g;b;48;2;r;g;b`），并做了游程压缩；终端不支持真彩色时这些参数会被当成
+  普通 SGR / 256 色索引重新解释，于是每条色带/色块都变成随机的调色板颜色。
+  TUI 主题用的是命名色（Cyan/Green/…），所以只有预览区域崩坏。
+- 新增 `viewer::Depth`（True / Ansi256 / Mono）与 `Depth::detect()`：读
+  `COLORTERM`、`TERM`、`TERM_PROGRAM`、`WT_SESSION` 判断能力，TERM 为空时按平台兜底。
+- 新增 `Rgb::ansi256()`（6×6×6 色立方 + 24 级灰阶取最近色）与 `Rgb::color_in(depth)`。
+- `Frame` 新增 `ansi_in(depth)` / `lines_in(depth)`；`ansi()` / `lines()` 保留为真彩色版本。
+  Mono 模式复用 `plain()` 的 ASCII 灰度斜坡（抽出为 `mono_char`）。
+- CLI `run()` 根据检测结果选择：真彩色 → `ansi_in(True)`，256 色 → `ansi_in(Ansi256)`，
+  无色 → `plain()`。
+- TUI 预览：新增 `c` 键在 真彩色 → 256 色 → ASCII 之间循环，弹层底色与页脚同步跟随；
+  打开预览时默认用 `Depth::detect()`。
+- 验证：`TERM=xterm-256color` 时输出 12 行 `38;5;`、0 处 `38;2;`；`TERM=dumb` 时 0 个
+  转义序列；新增 `ansi256_quantizes_to_palette` 测试，75 项全部通过。
+
 ## 2026-11-26 OSS 一行安装（latest.txt + 镜像版安装脚本）
 
 - `install.sh` / `install.ps1`：新增「镜像 `latest.txt` 解析最新版本」。
