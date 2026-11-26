@@ -1,5 +1,72 @@
 # 变更记录
 
+## 2026-11-26 OSS 一行安装（latest.txt + 镜像版安装脚本）
+
+- `install.sh` / `install.ps1`：新增「镜像 `latest.txt` 解析最新版本」。
+  - `install.sh`：`resolve_latest_from_mirror()`，remote 模式下先取 `${BASE_URL}/latest.txt`
+    （一行版本号），取不到再退回 GitHub 的 releases/latest。
+  - `install.ps1`：对应 `Get-MirrorLatestVersion`（`$remoteBase/latest.txt`）。
+  - 只影响「未显式指定版本」的情况，`--version` / `-Version` 行为不变，CI 的安装器
+    自测（本地目录 + 显式版本）不受影响。
+- `.github/scripts/upload_oss.py`：
+  - 新增 `--installers`：把仓库里的 `install.sh` / `install.ps1` 改写成「默认下载基址
+    指向本镜像」后上传到 `{prefix}/install.sh`、`{prefix}/install.ps1`（同时改写脚本内
+    的示例 raw.githubusercontent URL；sh 强制 LF、ps1 强制 CRLF）。
+  - 新增 `--latest`：上传 `{prefix}/latest.txt`（一行版本号）。
+  - 版本目录用 immutable 长缓存，根部文件用 `max-age=60`，避免 `latest.txt` 被缓存住。
+  - 位置参数改为 `<version> [dist-dir]`：dist 可省，只发 installers / latest.txt。
+- `scripts/release.sh` 与 `.github/workflows/release.yml` 调用时加 `--installers --latest`；
+  `mirror-oss.yml` 刻意只补版本目录（回填旧版本不应把 `latest.txt` 退回）。
+- 已实测（两个平台都跑通）：
+  - Linux（WSL）：`curl -fsSL https://wmview.oss-cn-hangzhou.aliyuncs.com/rswfn/install.sh | sh`
+    → 解析到 0.1.3、下载 musl 包、SHA256 校验、自检通过。
+  - Windows：同源 `install.ps1` 同样解析到 0.1.3、下载 zip、校验、自检、安装。
+- 记录一个与本改动无关的环境坑：从 Zed/Git Bash 调 `powershell`（5.1）时，
+  `PSModulePath` 继承了 PS7 的 `C:\Program Files\PowerShell\7\Modules`，PS 5.1 会先
+  命中版本不兼容的模块，导致 `Get-FileHash` / `Expand-Archive` 报「无法识别为 cmdlet」。
+  用标准 PSModulePath 运行即正常；正常开一个 PowerShell 窗口不受影响。
+
+## 2026-11-26 局部坐标系 π-only Kohn-Sham（`qmcal lks`）
+
+- 新增 `qmcal::lks`（`src/qmcal/lks.rs`）：`LKS` / `LKSResult`。
+  - 为每个原子构造局部坐标系（`atomprop::direction::Calculator::LCS`，无坐标系时退回 `RLCS`）。
+  - 用 `RsInt::mat1e_lcs` / `mat2e_lcs` 在局部坐标系（笛卡尔）下计算单/双电子积分，
+    再按「局部 x 指数为奇数」挑出 π 成分（`p_x`、`d_xy`、`d_xz`、`f_xxx`、`f_xyz`、…），
+    截取得到 `nπ × nπ` 的 S/H/双电子积分；Fock、DIIS、对角化、格点 XC 都在 `nπ` 维上进行。
+  - 格点上的 π 原子轨道取值/梯度由全局笛卡尔 AO 值经各壳层 `get_tmat_car` 旋转后取 π 列，
+    与 `mat1e_lcs` 的变换约定（`v^l = T·v^g`）一致。
+  - π 电子数：`LKS::npi_elec` 可显式指定；缺省按「拥有 p 壳层的原子数」估计（乙烯→2、苯→6），
+    对吡咯等含孤对杂原子体系可能偏少，应显式指定。
+  - `LKSResult::expand_coefs` 将 π 系数展开回全局笛卡尔基（`C_glob = P·C_π`）。
+  - `LKSResult::local_labels` / `mo_table_local`：打印 **局部坐标系下** 的 π 分子轨道系数表，
+    行标签只含 π 成分（如 `C1:PX`、`C3:XY`），列为 π 分子轨道并附轨道能。
+  - `LKSResult::to_mole`：构造一个「全局笛卡尔基 + π 占据数」的 `Mole`（系数为展开后的正常
+    全局轨道系数，`nπ` 个 MO，电子数=π 电子数），供 `FchWriter` / `MfnWriter` 导出。
+- CLI 新增 `rswfn qmcal lks -i <file> [-b <basis>] [-f <func>] [--npi-elec N] [-o out.fch|out.mwfn] [--print-mo]`
+  （`src/cli.rs` 的 `QmcalCmds::Lks`、`src/service/qmcal.rs::lks`），输出 π 约化基大小、
+  π 电子数、π 电子能量、π 分子轨道能量与耗时；`--print-mo` 打印局部 π 系数表，
+  `-o` 导出 `.fch/.fchk` 或 `.mwfn`（系数已展开回全局基，便于 Multiwfn 等可视化程序查看）。
+- 新增 `writer::MfnWriter`（`src/writer/mfn.rs`）：生成与 `MfnReader` 兼容的 Multiwfn 波函数文件；
+  `Nbasis` 为基函数数、`Nindbasis` 为轨道数（π-only 时前者大于后者）。
+- 注意导出文件描述的是 **π 子体系**：`Nindbasis = nπ < Nbasis`，电子数写作 π 电子数，
+  故与核电荷总数不自洽（仅供可视化 π 轨道）；能量写入的是 π 模型电子能量。
+- 注意：这是 **π 子系统模型**，能量不含 σ 电子与核内层，*不是* 分子总能量
+  （原理与坑见 `docs/pi电子能量.md`）。积分变换仍复用 `mat2e_lcs`（全维四级变换后再截断），
+  因此双电子积分耗时未减少；真正变小的是 Fock/系数/DIIS/本征求解与格点 XC。
+- 新增集成测试 `tests/qmcalc.rs::test_lks_c2h4`（乙烯 B3LYP/6-31G(d)：nπ=8、π 电子数 2、
+  SCF 收敛、`expand_coefs` 形状正确、局部系数表含 `PX` 标签、fch / mwfn 导出回读
+  轨道数与 π 电子数一致）。实测苯 STO-3G 的 π 轨道能级次序与简并
+  （a2u < e1g 双重简并 < e2u 双重简并 < b2g）与理论一致。
+
+## 2026-11-26 核-核排斥能下沉到 `Atoms`
+
+- `base::atoms::Atoms` 新增 `nuc_eng()`：按 `Σ_{i<j} Z_i Z_j / r_ij` 计算核-核排斥能，
+  距离用 `dist(i, j)` 现算（与 `dmat()` 一致，避免 `add()` 后 `dists` 变陈旧）。
+- `qmcal::ks::RKS::nuc_eng` 与 `qmcal::hf::RHF::nuc_eng` 改为直接调用 `self.mole.atoms.nuc_eng()`，
+  删除两份重复实现；`UKS` 原已委托给 `RKS`，无需改动。
+- 仍沿用原子序数 `nuc` 而非有效核电荷 `crg`，数值与改动前完全一致；
+  CLI 的 `qmcal hf/dft` 已输出核排斥能，无需新增命令。
+
 ## 2026-11-26 发行改为本地交叉编译（Windows + WSL）
 
 - 新增 `scripts/release.sh`：一条命令完成「编译 → 打包 → 分别上传 OSS 与 GitHub」。

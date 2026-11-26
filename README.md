@@ -82,9 +82,12 @@ single self-contained `.exe` with no `vcruntime140.dll` dependency.
 > Only Windows x86_64 and Linux x86_64/aarch64 have prebuilt binaries; Windows
 > ARM64 and macOS have none.
 >
-> Every release is also mirrored to Aliyun OSS at `oss://wmview/rswfn/v<version>/`;
-> see [docs/install.md](https://github.com/qmlCoder/rswfn/blob/main/docs/install.md)
-> for using that mirror as `--base-url`.
+> Every release is also mirrored to Aliyun OSS, which needs no GitHub access:
+> `curl -fsSL https://wmview.oss-cn-hangzhou.aliyuncs.com/rswfn/install.sh | sh`
+> (Windows: `irm https://wmview.oss-cn-hangzhou.aliyuncs.com/rswfn/install.ps1 | iex`).
+> See
+> [docs/install.md](https://github.com/qmlCoder/rswfn/blob/main/docs/install.md#5-离线安装与镜像)
+> for the OSS layout and options.
 
 Options (pin a version, choose the install directory, force a Linux target,
 uninstall, or install from a mirror):
@@ -277,6 +280,9 @@ BLYP、BP86、SVWN5 可选）。另外可以在终端里直接预览分子结构
 
 - **Windows**（PowerShell）：`irm https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.ps1 | iex`
 - **Linux**：`curl -fsSL https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh | sh`
+- **国内网络不稳 / 不想走 GitHub**（阿里云 OSS 镜像，行为一致）：
+  `curl -fsSL https://wmview.oss-cn-hangzhou.aliyuncs.com/rswfn/install.sh | sh`；
+  PowerShell：`irm https://wmview.oss-cn-hangzhou.aliyuncs.com/rswfn/install.ps1 | iex`
 - **已安装 Rust 工具链**（Windows / Linux / macOS 通用）：`cargo install rswfn`
 
 安装脚本从 GitHub Releases 下载预编译二进制、校验 SHA256 后安装，不需要 Rust

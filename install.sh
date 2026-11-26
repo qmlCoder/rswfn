@@ -292,6 +292,21 @@ fetch_url() {
     return 1
 }
 
+resolve_latest_from_mirror() {
+    # 镜像根目录下的 latest.txt：一行版本号（例如 0.1.3）。
+    # 有了它，非 GitHub 的镜像（如阿里云 OSS）也能解析“最新版本”，
+    # 不需要 --version，从而支持一行安装。取不到就返回空。
+    [ "${BASE_MODE}" = 'remote' ] || return 0
+    probe="${WORK_DIR}/mirror-latest.txt"
+    fetch_url "${BASE_URL}/latest.txt" "${probe}" 2>/dev/null || return 0
+    [ -s "${probe}" ] || return 0
+    candidate=$(sed -n '1p' "${probe}" | tr -d '\r' | tr -d '[:space:]')
+    case "${candidate}" in
+        '' | *[!0-9A-Za-z._-]*) return 0 ;;
+    esac
+    printf '%s' "${candidate}"
+}
+
 download_asset() {
     # $1 = asset file name, $2 = destination path
     asset_name="$1"
@@ -382,6 +397,13 @@ resolve_version() {
     fi
     if [ "${BASE_MODE}" = 'local' ]; then
         die "no version specified: pass --version x.y.z when using a local base directory '${BASE_PATH}' (layout: <base>/v<version>/<asset>)"
+    fi
+    mirror_tag=$(resolve_latest_from_mirror)
+    if [ -n "${mirror_tag}" ]; then
+        say "using the latest version from the mirror: ${mirror_tag}"
+        VERSION="${mirror_tag}"
+        normalize_version
+        return 0
     fi
     say 'resolving the latest rswfn release from GitHub'
     tag_name=$(resolve_latest_from_redirect)

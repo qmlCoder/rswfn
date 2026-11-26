@@ -272,6 +272,27 @@ function Get-LatestVersion {
     return $releaseInfo.tag_name
 }
 
+function Get-MirrorLatestVersion {
+    # 镜像根目录下的 latest.txt：一行版本号（例如 0.1.3）。
+    # 有了它，非 GitHub 的镜像（如阿里云 OSS）也能解析“最新版本”，
+    # 不需要 -Version，从而支持一行安装。取不到就返回空字符串。
+    param([Parameter(Mandatory = $true)][string]$RemoteBase)
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri "$RemoteBase/latest.txt" -TimeoutSec 15 -ErrorAction Stop
+        $text = $response.Content
+        if ($text -is [byte[]]) {
+            $text = [Text.Encoding]::UTF8.GetString($text)
+        }
+    } catch {
+        return ''
+    }
+    $first = ("$text" -split "`r?`n")[0]
+    if ([string]::IsNullOrWhiteSpace($first)) { return '' }
+    $first = $first.Trim()
+    if ($first -notmatch '^v?[0-9A-Za-z._-]+$') { return '' }
+    return $first
+}
+
 # ---------------------------------------------------------------------------
 # The whole installer lives in this function so that preference variables and
 # helper state never leak into the caller's session (irm | iex).
@@ -384,16 +405,22 @@ function Install-Rswfn {
         if ($baseMode -eq 'local') {
             Fail "no version specified: pass -Version x.y.z when using a local base directory '$localBase' (layout: <base>\v<version>\<asset>)"
         }
-        Write-Step 'resolving the latest rswfn release from GitHub'
-        try {
-            $tagName = Get-LatestVersion
-        } catch {
-            Fail "could not determine the latest release (network unavailable, or the anonymous GitHub API rate limit was hit): pass -Version x.y.z explicitly (for example: .\install.ps1 -Version 0.1.1). Details: $($_.Exception.Message)"
+        $mirrorTag = Get-MirrorLatestVersion -RemoteBase $remoteBase
+        if (-not [string]::IsNullOrWhiteSpace($mirrorTag)) {
+            Write-Step "using the latest version from the mirror: $mirrorTag"
+            $Version = $mirrorTag
+        } else {
+            Write-Step 'resolving the latest rswfn release from GitHub'
+            try {
+                $tagName = Get-LatestVersion
+            } catch {
+                Fail "could not determine the latest release (network unavailable, or the anonymous GitHub API rate limit was hit): pass -Version x.y.z explicitly (for example: .\install.ps1 -Version 0.1.1). Details: $($_.Exception.Message)"
+            }
+            if ([string]::IsNullOrWhiteSpace($tagName)) {
+                Fail "could not parse the latest version from the GitHub response: pass -Version x.y.z explicitly"
+            }
+            $Version = "$tagName"
         }
-        if ([string]::IsNullOrWhiteSpace($tagName)) {
-            Fail "could not parse the latest version from the GitHub response: pass -Version x.y.z explicitly"
-        }
-        $Version = "$tagName"
     }
     $Version = "$Version".Trim()
     if ($Version.StartsWith('v') -or $Version.StartsWith('V')) {

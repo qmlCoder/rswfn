@@ -208,35 +208,46 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.1 -BaseUrl f
 使用本地目录（含 `file://` 形式）作为下载基址时，脚本无法从中查询最新版本，
 **必须显式指定版本**（`--version` / `-Version` 或 `RSWFN_VERSION`）；完全离线的环境同理。
 
-### 官方阿里云 OSS 镜像
+### 官方阿里云 OSS 镜像（支持一行安装）
 
-每个版本除了发到 GitHub Releases，还会由 release workflow 镜像到阿里云 OSS，目录名用
-`v<version>`，与上面的镜像约定完全一致：
+每个版本除了发到 GitHub Releases，还会镜像到阿里云 OSS。除了版本目录，镜像根目录还放了
+安装脚本和「最新版本」指针：
 
 ```text
-oss://wmview/rswfn/v0.1.3/
-├── SHA256SUMS
-├── rswfn-0.1.3-aarch64-unknown-linux-gnu.tar.gz
-├── rswfn-0.1.3-x86_64-pc-windows-msvc.zip
-├── rswfn-0.1.3-x86_64-unknown-linux-gnu.tar.gz
-└── rswfn-0.1.3-x86_64-unknown-linux-musl.tar.gz
+oss://wmview/rswfn/
+├── latest.txt                  # 一行版本号，例如 0.1.3
+├── install.sh                  # 默认下载基址已指向本镜像
+├── install.ps1
+└── v0.1.3/
+    ├── SHA256SUMS
+    ├── rswfn-0.1.3-aarch64-unknown-linux-gnu.tar.gz
+    ├── rswfn-0.1.3-x86_64-pc-windows-msvc.zip
+    ├── rswfn-0.1.3-x86_64-unknown-linux-gnu.tar.gz
+    └── rswfn-0.1.3-x86_64-unknown-linux-musl.tar.gz
 ```
 
-所以可以把 bucket 的公开访问地址当下载基址（GitHub 访问不稳定时很有用）：
+因此可以完全不依赖 GitHub，一行装最新版：
 
 ```sh
-sh install.sh --version 0.1.3 \
-    --base-url https://wmview.oss-cn-<region>.aliyuncs.com/rswfn
+curl -fsSL https://wmview.oss-cn-hangzhou.aliyuncs.com/rswfn/install.sh | sh
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.3 `
-    -BaseUrl https://wmview.oss-cn-<region>.aliyuncs.com/rswfn
+irm https://wmview.oss-cn-hangzhou.aliyuncs.com/rswfn/install.ps1 | iex
 ```
 
-把 `oss-cn-<region>` 换成 bucket 实际所在的 region。注意两点：OSS 上没有「最新版本」
-这个概念，所以用 OSS 作基址时必须显式给 `--version` / `-Version`；并且该地址需要
-bucket 或这些对象允许**公共读**（私有 bucket 只能下载带签名的 URL，安装脚本不支持）。
+行为与 GitHub 版完全一致：从 `latest.txt` 解析最新版本 → 下载对应归档 →
+用 `SHA256SUMS` 校验 → 自检后安装。bucket 不在杭州的话，把 `oss-cn-hangzhou` 换成实际
+region。
+
+几点说明：
+
+- 仍可传参，比如 `... | sh -s -- --version 0.1.3 --dir ~/bin`：指定版本或自定义目录。
+  注意 `--version` 可省，但 `latest.txt` 必须能取到；两者都没有时脚本会退回 GitHub 解析。
+- `install.sh` / `install.ps1` 是发布时由 `.github/scripts/upload_oss.py` 从仓库里的同名
+  文件生成的：只改写默认下载基址（和脚本内部的示例 URL），其余与仓库版本一致。
+- 该地址需要 bucket 或这些对象允许**公共读**（私有 bucket 只能下载签名 URL，安装脚本
+  不支持）。
 
 ## 6. 校验机制（SHA256SUMS）
 

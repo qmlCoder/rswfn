@@ -230,6 +230,8 @@ jobs:
           fi
 
       # 把同一份资产镜像到阿里云 OSS：oss://wmview/rswfn/v<version>/
+      # 同时发布改写默认基址的 install.sh / install.ps1 与 latest.txt，
+      # 这样就能直接从 OSS 一行安装（见 docs/install.md 第 5 节）。
       # 目录名用 v<version>，与安装脚本的镜像约定 <base-url>/v<version>/<asset>
       # 一致，所以可以直接把 OSS 地址当下载基址安装：
       #   sh install.sh --version <ver> --base-url https://wmview.<endpoint>/rswfn
@@ -240,4 +242,4 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install --quiet --disable-pip-version-check oss2
-          python3 .github/scripts/upload_oss.py "${GITHUB_REF_NAME}" dist
+          python3 .github/scripts/upload_oss.py "${GITHUB_REF_NAME}" dist --installers --latest
