@@ -399,63 +399,74 @@ Windows 同理：先 `irm ... -OutFile install.ps1`，再用 `powershell -Execut
 
 ## 11. 维护者发布清单
 
-安装脚本依赖 GitHub Releases 上的资产与 `SHA256SUMS`，发布流程如下：
+安装脚本依赖 GitHub Releases 上的资产与 `SHA256SUMS`。二进制现在在**本地**交叉编译：
+Windows 目标本机构建，3 个 Linux 目标在 WSL 里构建；`scripts/release.sh` 负责打包、
+上传阿里云 OSS 和创建 GitHub Release。`.github/workflows/release.yml` 现在只在手动
+触发时构建（兜底），不再随 tag 自动发布。
 
-1. **改版本号**：修改 `Cargo.toml` 里的 `version`（首个 release 建议 `0.1.1`，因为
-   `0.1.0` 已发布到 crates.io），并同步更新 `Cargo.lock`（跑一次 `cargo check` 或
-   `cargo build --release` 即可；release workflow 用 `--locked` 构建）。
-2. **提交并打 tag**：tag 必须与 `Cargo.toml` 的版本一致，形如 `v0.1.1`，否则 workflow
-   会报错退出。
+1. **改版本号**：修改 `Cargo.toml` 的 `version`，并同步 `Cargo.lock`（跑一次
+   `cargo check` 即可；脚本用 `--locked` 构建）。
+2. **提交**：
 
    ```sh
    git add Cargo.toml Cargo.lock
-   git commit -m "release v0.1.1"
+   git commit -m "Release v0.1.4"
    git push origin main
-   git tag v0.1.1
-   git push origin v0.1.1
    ```
 
-3. **等待 Actions 完成**：`.github/workflows/release.yml` 会构建 4 个产物并创建
-   Release，附上 `SHA256SUMS`：
-
-   ```text
-   rswfn-0.1.1-x86_64-pc-windows-msvc.zip
-   rswfn-0.1.1-x86_64-unknown-linux-gnu.tar.gz
-   rswfn-0.1.1-x86_64-unknown-linux-musl.tar.gz
-   rswfn-0.1.1-aarch64-unknown-linux-gnu.tar.gz
-   SHA256SUMS
-   ```
-
-   可用 `gh release view v0.1.1 --repo qmlCoder/rswfn` 确认资产齐全。
-4. **确认 OSS 镜像**：release workflow 会把同一份资产（4 个归档 + `SHA256SUMS`）
-   上传到 `oss://wmview/rswfn/v<version>/`，日志里会打印 `install base url`。
-   该步骤需要仓库 secrets `OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、
-   `OSS_ENDPOINT`（可选 `OSS_BUCKET`、`OSS_PREFIX`）；没配置时会**静默跳过**，
-   只发 GitHub Release。想单独重传某个已有版本，在 Actions 里手动跑
-   `Mirror to OSS` workflow，填 tag 即可（重跑是幂等的）。
-
-   凭据建议记在仓库根的 `.env`（已被 `.gitignore` 忽略，模板见 `.env.example`）。
-   本地跑脚本时会自动读取它；同步到 GitHub Secrets 只需一条命令：
+3. **一条命令发布**（在 Windows 的 Git Bash 里执行）：
 
    ```sh
-   cp .env.example .env    # 填入 OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET
-   gh secret set -f .env --repo qmlCoder/rswfn
+   sh scripts/release.sh
    ```
 
-   本地回填某个已发布版本（不需要打 tag）：
+   脚本依次完成：
+
+   - 校验版本号与 `Cargo.toml` 一致，创建并推送 `v<version>` tag；
+   - 本机编译 `x86_64-pc-windows-msvc`（静态 CRT）；
+   - 交给 WSL 编译 `x86_64-unknown-linux-gnu`、`x86_64-unknown-linux-musl`、
+     `aarch64-unknown-linux-gnu`；
+   - 打包出与 CI 完全一致的 4 个归档 + `SHA256SUMS`：
+
+     ```text
+     rswfn-<ver>-x86_64-pc-windows-msvc.zip
+     rswfn-<ver>-x86_64-unknown-linux-gnu.tar.gz
+     rswfn-<ver>-x86_64-unknown-linux-musl.tar.gz
+     rswfn-<ver>-aarch64-unknown-linux-gnu.tar.gz
+     SHA256SUMS
+     ```
+
+   - 上传 `oss://wmview/rswfn/v<version>/`；
+   - 创建（或覆盖同名资产的）GitHub Release。
+
+   常用开关：`--skip-build`（只重新打包 + 上传）、`--no-oss`、`--no-github`、
+   `--no-tag`、`--targets "..."`、`--wsl <distro>`、`--wsl-target-dir <path>`。
+
+4. **首次准备**（一次性）：
+
+   - Windows：`rustup target add x86_64-pc-windows-msvc`
+   - WSL：`rustup target add aarch64-unknown-linux-gnu`，以及
+     `sudo apt install musl-tools gcc-aarch64-linux-gnu`
+   - `python -m pip install oss2`；把 `.env.example` 复制成 `.env` 并填入 OSS 凭据
+   - `gh auth status` 确认有仓库写权限
+
+   WSL 默认把 `CARGO_TARGET_DIR` 指到 `~/.cache/rswfn-target`（Linux 原生文件系统），
+   在 `/mnt/e` 上直接编译会慢很多；要改就用 `--wsl-target-dir`。
+
+   GitHub Secrets（`OSS_*`）只在手动触发 `release.yml` 时才用到；本地发布读 `.env`。
+   想让 CI 也能传 OSS，就把 `.env` 同步过去：`gh secret set -f .env --repo qmlCoder/rswfn`。
+5. **单独重传某个已有版本**：不需要重新编译，也不需要打 tag：
 
    ```sh
    gh release download v0.1.3 --dir dist-oss --clobber
    python .github/scripts/upload_oss.py v0.1.3 dist-oss
    ```
 
-   `gh secret set -f` 会把 `.env` 里的非注释行全部写成 secrets；`.env` 里的
-   `OSS_BUCKET` / `OSS_PREFIX` 也会一并写入，workflow 正是从 `secrets.OSS_*`
-   读取这几个值，所以不需要另外处理。
-5. **在干净机器上验证两条一行命令**：准备一台 Linux 和一台 Windows（都不预装 Rust），
+   也可以在 Actions 里手动跑 `Mirror to OSS` workflow（填 tag，留空取 latest）。
+6. **在干净机器上验证两条一行命令**：准备一台 Linux 和一台 Windows（都不预装 Rust），
    分别运行第 2、3 节的一行命令，再确认 `rswfn --version` 输出预期版本。
-6. **（可选）同步 crates.io**：GitHub Release 与 crates.io 发布相互独立；如果希望
+7. **（可选）同步 crates.io**：GitHub Release 与 crates.io 发布相互独立；如果希望
    `cargo install rswfn` 也能装到新版本，需要另外执行 `cargo publish`。
 
-注意：在 Actions 页面手动触发（`workflow_dispatch`）只会构建产物，不会创建 Release，
-适合在正式打 tag 前验证构建是否通过。
+注意：`.github/workflows/release.yml` 只在 Actions 页面手动触发时运行，且只构建并上传
+artifact（不创建 Release、不传 OSS），适合在本地工具链不可用时验证构建。

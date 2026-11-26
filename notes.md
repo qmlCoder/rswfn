@@ -1,5 +1,35 @@
 # 变更记录
 
+## 2026-11-26 发行改为本地交叉编译（Windows + WSL）
+
+- 新增 `scripts/release.sh`：一条命令完成「编译 → 打包 → 分别上传 OSS 与 GitHub」。
+  - Windows 目标（`x86_64-pc-windows-msvc`）本机编译，
+    `RUSTFLAGS=-C target-feature=+crt-static`（与 CI 一致，不依赖 vcruntime140.dll）；
+  - 3 个 Linux 目标通过 `wsl -d <distro>` 交给 `scripts/build-wsl.sh` 编译；
+  - 打包结构与 CI 一致：zip 为扁平结构（`rswfn.exe` + README/LICENSE），tar.gz 带顶层目录；
+  - `SHA256SUMS` 改用 Python 生成：Git Bash 的 `sha256sum` 在 Windows 上输出
+    `hash *name`（星号 + 单空格），不符合 `<64hex><两空格><name>` 的契约；
+  - 默认创建并推送 `v<version>` tag；`--skip-build` / `--no-oss` / `--no-github` /
+    `--no-tag` / `--targets` / `--wsl` / `--wsl-target-dir` 可选。
+- 新增 `scripts/build-wsl.sh`：在 WSL 里逐目标设置
+  `CC_*` / `CARGO_TARGET_*_LINKER`（`musl-gcc`、`aarch64-linux-gnu-gcc`，vendored OpenSSL 也用它），
+  编译后把 tar.gz 打到 `dist/`；默认 `CARGO_TARGET_DIR=~/.cache/rswfn-target`
+  （Linux 原生文件系统，比 `/mnt/e` 快很多）。
+- `.github/workflows/release.yml`：去掉 `push: tags` 触发，改为仅 `workflow_dispatch`，
+  避免与本地发布同时写同一份 Release 资产；组件保留作为本地工具链不可用时的兜底。
+- 环境侧准备（已在本机执行）：WSL 里 `rustup target add aarch64-unknown-linux-gnu` 与
+  `apt install gcc-aarch64-linux-gnu`。
+- 验证范围：aarch64 交叉编译（`cargo build --locked --target aarch64-unknown-linux-gnu`）
+  成功，产物为 `ELF 64-bit LSB pie executable, ARM aarch64`；Windows 打包与
+  `SHA256SUMS` 格式通过契约校验 `^[0-9a-f]{64}  [^/]+$`；WSL 委派链路（路径映射、
+  参数与 env 传递）已验证。未跑完整的 4 目标发布（首次全量构建每目标约 10–20 分钟）。
+- 两个坑：
+  - Git Bash 把 `E:\code\rswfn` 传给原生程序时反斜杠被 MSYS 吃掉（`wslpath` 返回
+    `E:coderswfn`），所以改用 `REPO_WSL=/mnt$PWD`；
+  - 脚本必须是 LF：CRLF 会让 WSL 的 dash 在 `set -eu` 上报 `Illegal option -`，
+    release.sh 调用前会先 `sed -i 's/\r//g' scripts/*.sh` 兜底（`.gitattributes`
+    已有 `*.sh text eol=lf`）。
+
 ## 2026-11-26 把 OSS 凭据收到 .env
 
 - 新增 `.env`（仓库根，已加入 `.gitignore`）记录 `OSS_ACCESS_KEY_ID` /

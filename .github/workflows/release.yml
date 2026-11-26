@@ -1,13 +1,12 @@
 name: Release
 
-# 给 Windows / Linux 编译预编译二进制，并附到 GitHub Release 上。
-# 用法：把 Cargo.toml 的 version 改好并提交，然后打一个同名 tag 再 push：
-#     git tag v0.1.1 && git push origin v0.1.1
-# 也可以在 Actions 页面手动触发（workflow_dispatch），手动触发只构建不发布。
+# 预编译二进制的发布现在由本地脚本 scripts/release.sh 完成：Windows 目标本机编译，
+# 3 个 Linux 目标在 WSL 里交叉编译，然后分别上传阿里云 OSS 与 GitHub Release。
+# 见 docs/install.md 第 11 节。
+#
+# 这里保留手动触发（workflow_dispatch）作为兜底：本地工具链不可用时，
+# 手动跑一次可以验证 4 个目标能否构建（只构建 + 上传 artifact，不建 Release、不传 OSS）。
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 # 创建 Release 需要写权限
