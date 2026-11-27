@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-11-26 F3 改为独立结果弹窗（含历次全部结果）
+
+- 新增 `Snapshot { label, cli, time, text }` 与 `App.history: Vec<Snapshot>`：
+  每次任务成功后在 `poll_job` 里把结果快照存入，最新的在末尾。
+- `Overlay` 新增 `Results { index, scroll }` 变体；`F3` 不再切 `Mode::Result`，
+  而是打开这个弹窗（任意时刻可用，弹层里也可用）。
+- 弹窗内容：标题 `F3 计算结果 2/5 · 时间 · 任务名`，首行 `等价命令: rswfn …`，
+  正文为结果文本；按键 `↑↓/PgUp/PgDn` 滚动、`←/→`（或 `[`/`]`）切换历次结果、
+  `c` 复制（OSC 52 + 文件兜底）、`s` 保存、`Esc/q` 关闭。
+- `copy_result` 拆出 `copy_text` / `save_text`，供行内结果与弹窗共用。
+- 新增测试 `f3_opens_results_popup`（检查弹窗标题与等价 CLI 行）；76 项全部通过。
+- 遗留：旧的 `draw_form` / `draw_result` / `draw_running` 已无调用方，待清理。
+
 ## 2026-11-26 TUI 运行层改版（无边框分栏）
 
 - 运行层不再用两个带边框的面板：改为「参数在上 / 一条横线 / 结果在下」，

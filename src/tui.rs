@@ -1045,12 +1045,27 @@ struct ViewerState {
     depth: viewer::Depth,
 }
 
+/// 一次计算结果的快照：F3 弹窗按时间顺序保存全部结果
+#[derive(Debug, Clone)]
+struct Snapshot {
+    label: String,
+    /// 等价 CLI（子命令 + 文件）
+    cli: String,
+    time: String,
+    text: String,
+}
+
 enum Overlay {
     Help,
     Log,
     Error(String),
     Browser(Browser),
     Viewer(ViewerState),
+    /// F3：历次结果弹窗，index 指向 history（最新的在末尾）
+    Results {
+        index: usize,
+        scroll: u16,
+    },
 }
 
 // ===== 应用状态 =====
@@ -1073,6 +1088,8 @@ struct App {
     tree_state: ListState,
     form: Option<Form>,
     result: Option<Report>,
+    /// 历次结果（F3 弹窗用），最新的在末尾
+    history: Vec<Snapshot>,
     result_scroll: u16,
     overlay: Option<Overlay>,
     help_scroll: u16,
@@ -1117,6 +1134,7 @@ impl App {
             tree_state: ListState::default(),
             form: None,
             result: None,
+            history: Vec::new(),
             result_scroll: 0,
             overlay: None,
             help_scroll: 0,
@@ -1186,6 +1204,14 @@ impl App {
         match outcome {
             JobOutcome::Ok(report) => {
                 self.result_scroll = 0;
+                let cli = self.form.as_ref().map(|form| task_info(form.task).cli).unwrap_or("");
+                let file = self.current_file.as_ref().map(|path| path.display().to_string()).unwrap_or_default();
+                self.history.push(Snapshot {
+                    label: job.label.clone(),
+                    cli: format!("{cli} {file}").trim().to_string(),
+                    time: chrono::Local::now().format("%H:%M:%S").to_string(),
+                    text: report.to_string(),
+                });
                 self.result = Some(report);
                 if job.cancelled {
                     self.status = format!("任务完成（后台）: {}，按 F3 查看", job.label);
@@ -1225,12 +1251,12 @@ impl App {
                 return;
             }
             KeyCode::F(3) => {
-                self.overlay = None;
-                if self.result.is_some() {
-                    self.mode = Mode::Result;
-                    self.status = "F3 计算结果：c 复制 · s 保存文本 · Tab 回到参数".to_string();
-                } else {
+                // F3 是独立弹窗：任意时刻都能打开，里面是历次全部结果
+                if self.history.is_empty() {
                     self.status = "还没有计算结果：在功能层选一个任务并按 Enter".to_string();
+                } else {
+                    let last = self.history.len() - 1;
+                    self.overlay = Some(Overlay::Results { index: last, scroll: 0 });
                 }
                 return;
             }
@@ -1255,6 +1281,10 @@ impl App {
     fn on_key_overlay(&mut self, key: KeyEvent) {
         if matches!(self.overlay, Some(Overlay::Viewer(_))) {
             self.on_key_viewer(key);
+            return;
+        }
+        if matches!(self.overlay, Some(Overlay::Results { .. })) {
+            self.on_key_results(key);
             return;
         }
         let is_browser = matches!(self.overlay.as_ref(), Some(Overlay::Browser(_)));
@@ -1483,13 +1513,65 @@ impl App {
         }
     }
 
+    /// F3 弹窗的按键：切结果、滚动、复制/保存
+    fn on_key_results(&mut self, key: KeyEvent) {
+        let Some(Overlay::Results { index, scroll }) = self.overlay.as_ref() else { return };
+        let mut index = *index;
+        let mut scroll = *scroll;
+        let len = self.history.len();
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.overlay = None;
+                return;
+            }
+            KeyCode::Up | KeyCode::Char('k') => scroll = scroll.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => scroll = scroll.saturating_add(1),
+            KeyCode::PageUp => scroll = scroll.saturating_sub(10),
+            KeyCode::PageDown => scroll = scroll.saturating_add(10),
+            KeyCode::Home => scroll = 0,
+            KeyCode::Left | KeyCode::Char('[') => {
+                if index > 0 {
+                    index -= 1;
+                    scroll = 0;
+                }
+            }
+            KeyCode::Right | KeyCode::Char(']') => {
+                if index + 1 < len {
+                    index += 1;
+                    scroll = 0;
+                }
+            }
+            KeyCode::Char('c') => {
+                if let Some(snapshot) = self.history.get(index) {
+                    let text = snapshot.text.clone();
+                    self.copy_text(&text);
+                }
+            }
+            KeyCode::Char('s') => {
+                if let Some(snapshot) = self.history.get(index) {
+                    let text = snapshot.text.clone();
+                    self.save_text(&text);
+                }
+            }
+            _ => {}
+        }
+        if let Some(Overlay::Results { index: i, scroll: s }) = self.overlay.as_mut() {
+            *i = index;
+            *s = scroll;
+        }
+    }
+
     /// `c`：用 OSC 52 让本地终端把结果写进剪贴板，同时落盘一份做兜底
     fn copy_result(&mut self) {
         let Some(report) = self.result.as_ref() else { return };
         let text = report.to_string();
+        self.copy_text(&text);
+    }
+
+    fn copy_text(&mut self, text: &str) {
         let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
         let path = format!("rswfn_copy_{stamp}.txt");
-        let saved = std::fs::write(&path, &text).is_ok();
+        let saved = std::fs::write(&path, text).is_ok();
 
         use std::io::Write as _;
         let mut out = std::io::stdout();
@@ -1500,6 +1582,15 @@ impl App {
             format!("已发送 OSC 52 复制（终端需支持）；同时已存 {path}")
         } else {
             "已发送 OSC 52 复制请求（终端需支持）".to_string()
+        };
+    }
+
+    fn save_text(&mut self, text: &str) {
+        let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let path = format!("rswfn_result_{stamp}.txt");
+        self.status = match std::fs::write(&path, text) {
+            Ok(()) => format!("已保存: {path}"),
+            Err(err) => format!("保存失败: {err}"),
         };
     }
 
@@ -2089,6 +2180,26 @@ impl App {
         let current_file = self.current_file.clone();
         let Some(overlay) = self.overlay.as_mut() else { return };
         match overlay {
+            Overlay::Results { index, scroll } => {
+                let popup = centered(area, 86, 84);
+                frame.render_widget(Clear, popup);
+                let total = self.history.len();
+                let snapshot = self.history.get(*index);
+                let title = match snapshot {
+                    Some(snapshot) => format!(" F3 计算结果 {}/{} · {} · {} ", *index + 1, total, snapshot.time, snapshot.label),
+                    None => " F3 计算结果 ".to_string(),
+                };
+                let block = Block::new().borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan)).title(title);
+                let inner = block.inner(popup);
+                frame.render_widget(block, popup);
+                let parts = Layout::vertical([Constraint::Length(1), Constraint::Min(1), Constraint::Length(1)]).split(inner);
+                let cli = snapshot.map(|snapshot| snapshot.cli.clone()).unwrap_or_default();
+                frame.render_widget(Paragraph::new(Line::from(Span::styled(format!(" 等价命令: rswfn {cli}"), Style::default().fg(Color::Gray)))), parts[0]);
+                let body: Vec<Line> = snapshot.map(|snapshot| snapshot.text.clone()).unwrap_or_default().lines().map(|line| Line::from(line.to_string())).collect();
+                frame.render_widget(Paragraph::new(body).scroll((*scroll, 0)), parts[1]);
+                let hint = " ↑↓ 滚动   ←/→ 切换结果   c 复制   s 保存   Esc 关闭 ";
+                frame.render_widget(Paragraph::new(Line::from(Span::styled(hint, Style::default().fg(Color::Gray)))), parts[2]);
+            }
             Overlay::Browser(browser) => {
                 let popup = centered(area, 80, 80);
                 frame.render_widget(Clear, popup);
@@ -2958,6 +3069,25 @@ mod tests {
         let text = render(&mut app);
         assert!(text.contains("┌") && text.contains("┘"), "弹出层应有边框，实际渲染:\n{text}");
         assert!(compact(&text).contains("打开文件"), "弹出层标题缺失，实际渲染:\n{text}");
+    }
+
+    #[test]
+    fn f3_opens_results_popup() {
+        let mut app = App::new(Arc::new(Mutex::new(VecDeque::new())), None);
+        app.history.push(Snapshot {
+            label: "Mulliken 布居".to_string(),
+            cli: "atomprop charge mulliken a.fch".to_string(),
+            time: "12:00:00".to_string(),
+            text: "=== 结果 ===\nC1  0.123".to_string(),
+        });
+        app.on_key(KeyEvent::new(KeyCode::F(3), KeyModifiers::NONE));
+        assert!(matches!(app.overlay, Some(Overlay::Results { .. })), "F3 应打开结果弹窗");
+        let text = render(&mut app);
+        let flat: String = text.chars().filter(|ch| !ch.is_whitespace()).collect();
+        assert!(flat.contains("F3计算结果"), "弹窗标题缺失，实际:\n{text}");
+        assert!(flat.contains("等价命令"), "弹窗里应显示等价 CLI，实际:\n{text}");
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.overlay.is_none(), "Esc 应关闭弹窗");
     }
 
     #[test]
