@@ -2354,15 +2354,29 @@ impl App {
                 frame.render_widget(paragraph, popup);
             }
             Overlay::Error(message) => {
-                let popup = centered(area, 70, 40);
+                // 自己算矩形并把它夹在可用区域里，标题画在框内首行，
+                // 避免用 block title + 百分比定位时上下边框被裁掉
+                let lines = message.lines().count().max(1) as u16;
+                let width = area.width.saturating_sub(8).min(72).max(20);
+                let height = (lines + 4).min(area.height).max(3);
+                let popup = Rect {
+                    x: area.x + area.width.saturating_sub(width) / 2,
+                    y: area.y + area.height.saturating_sub(height) / 2,
+                    width: width.min(area.width),
+                    height: height.min(area.height),
+                };
                 frame.render_widget(Clear, popup);
-                // 错误提示用红色突出显示：红色粗体边框 + 红底白字标题 + 红色正文
-                let block = Block::new()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
-                    .title(Span::styled(" 错误（Esc 关闭） ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
-                let paragraph = Paragraph::new(Span::styled(message.clone(), Style::default().fg(Color::Red))).wrap(Wrap { trim: true }).block(block);
-                frame.render_widget(paragraph, popup);
+                let block = Block::new().borders(Borders::ALL).border_style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD));
+                let inner = block.inner(popup);
+                frame.render_widget(block, popup);
+                if inner.height >= 2 {
+                    let parts = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(inner);
+                    frame.render_widget(
+                        Paragraph::new(Span::styled(" 错误（Esc 关闭）", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD))),
+                        parts[0],
+                    );
+                    frame.render_widget(Paragraph::new(Span::styled(message.clone(), Style::default().fg(Color::Red))).wrap(Wrap { trim: true }), parts[1]);
+                }
             }
         }
     }
