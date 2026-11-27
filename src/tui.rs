@@ -2356,7 +2356,12 @@ impl App {
             Overlay::Error(message) => {
                 let popup = centered(area, 70, 40);
                 frame.render_widget(Clear, popup);
-                let paragraph = Paragraph::new(message.clone()).wrap(Wrap { trim: true }).block(Block::new().borders(Borders::ALL).title(" 错误（Esc 关闭） "));
+                // 错误提示用红色突出显示：红色粗体边框 + 红底白字标题 + 红色正文
+                let block = Block::new()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+                    .title(Span::styled(" 错误（Esc 关闭） ", Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD)));
+                let paragraph = Paragraph::new(Span::styled(message.clone(), Style::default().fg(Color::Red))).wrap(Wrap { trim: true }).block(block);
                 frame.render_widget(paragraph, popup);
             }
         }
