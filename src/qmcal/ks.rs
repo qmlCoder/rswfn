@@ -1,4 +1,5 @@
 use crate::base::{Ato, Basis, Coefs, Mole};
+use crate::datas::btrans;
 use crate::maths;
 use crate::props::gridprop;
 use crate::props::gridprop::wfnfunc;
@@ -12,7 +13,7 @@ use super::diis::Diis;
 
 /// B3LYP 中精确（Hartree-Fock）交换的混合系数
 ///
-/// 等于 [`XcFunc::B3LYP.exact_x`]；保留为常量以兼容旧代码。
+/// 等于 `XcFunc::B3LYP` 的 `exact_x`；保留为常量以兼容旧代码。
 /// 其他泛函的系数应使用 [`XcFunc::exact_x`]。
 pub const B3LYP_EXACT_X: f64 = 0.20;
 
@@ -132,29 +133,95 @@ pub struct GridBlock {
     pub rmax: f64,
 }
 
+/// 计算单个笛卡尔原子轨道在某格点处的取值与一阶导数
+fn ato_wfn_car(atoms: &crate::base::Atoms, ato: &Ato, grid: &[f64; 3]) -> (f64, [f64; 3]) {
+    let [ax, ay, az] = atoms.get(ato.atm).xyz;
+    let xyz = [grid[0] - ax, grid[1] - ay, grid[2] - az];
+    let (val0, val1, _val2) = wfnfunc::cgf(&xyz, ato.lmn(), &ato.alps, ato.coes_norm(), 1);
+    (val0, val1)
+}
+
 /// 计算某个格点处所有原子轨道（指定形式）的取值与一阶导数
 ///
 /// `wfnfunc::ato_wfn` 固定使用笛卡尔形式，而 KS 计算需要与积分形式
 /// （`sph` 或 `car`）一致，否则系数矩阵与格点上的轨道值会错位。
+///
+/// 球谐壳层（l >= 2）没有单独的笛卡尔 (l, m, n) 可求值，这里先算出
+/// 该壳层全部笛卡尔分量，再按 `φ_sph = car2sph_tmat · φ_car` 组合，
+/// 与 `RsInt::mat1e_sph` 使用的变换保持一致。
 fn ato_wfn_form(mole: &Mole, grid: &[f64; 3], form: &str) -> (Vec<f64>, Vec<f64>) {
-    let atos = mole.basis().atos();
-    let atos = if form == "car" { &atos.cars } else { &atos.sphs };
+    let basis = mole.basis();
+    let atos = basis.atos();
     let atoms = mole.atoms();
-    let nato = atos.len();
+    if form == "car" {
+        let cars = &atos.cars;
+        let nato = cars.len();
+        let mut wfn0 = vec![0.0; nato];
+        // 一阶导数按 [r * nato + i] 存放，便于按方向连续读取
+        let mut wfn1 = vec![0.0; nato * 3];
+        for i in 0..nato {
+            let (val0, val1) = ato_wfn_car(atoms, &cars[i], grid);
+            wfn0[i] = val0;
+            for r in 0..3 {
+                wfn1[r * nato + i] = val1[r];
+            }
+        }
+        return (wfn0, wfn1);
+    }
+
+    let sphs = &atos.sphs;
+    let cars = &atos.cars;
+    let shls = &basis.shls;
+    let uplo_sph = shls.uplo("sph");
+    let uplo_car = shls.uplo("car");
+    let nato = sphs.len();
     let mut wfn0 = vec![0.0; nato];
-    // 一阶导数按 [r * nato + i] 存放，便于按方向连续读取
     let mut wfn1 = vec![0.0; nato * 3];
-    for i in 0..nato {
-        let atm = atos[i].atm;
-        let [ax, ay, az] = atoms.get(atm).xyz;
-        let xyz = [grid[0] - ax, grid[1] - ay, grid[2] - az];
-        let coes = atos[i].coes_norm();
-        let alps = &atos[i].alps;
-        let lmn = atos[i].lmn();
-        let (val0, val1, _val2) = wfnfunc::cgf(&xyz, lmn, alps, coes, 1);
-        wfn0[i] = val0;
-        for r in 0..3 {
-            wfn1[r * nato + i] = val1[r];
+    for s in 0..shls.len() {
+        let ang = shls.get(s).ang;
+        let [su, sl] = uplo_sph[s];
+        let [cu, cl] = uplo_car[s];
+        if ang < 2 {
+            // s、p 的球谐与笛卡尔分量逐一相同
+            for i in su..sl {
+                let (val0, val1) = ato_wfn_car(atoms, &sphs[i], grid);
+                wfn0[i] = val0;
+                for r in 0..3 {
+                    wfn1[r * nato + i] = val1[r];
+                }
+            }
+            continue;
+        }
+        // l >= 2：先算笛卡尔分量，再组合成球谐分量
+        // 最高支持 h 壳层，21 个笛卡尔分量；用栈数组避免每个格点都堆分配
+        let ncar = cl - cu;
+        debug_assert!(ncar <= 21, "球谐壳层最多支持 h（21 个笛卡尔分量）");
+        let mut car0 = [0.0f64; 21];
+        let mut car1 = [0.0f64; 63];
+        for j in 0..ncar {
+            let (val0, val1) = ato_wfn_car(atoms, &cars[cu + j], grid);
+            car0[j] = val0;
+            for r in 0..3 {
+                car1[r * ncar + j] = val1[r];
+            }
+        }
+        let tmat = btrans::car2sph_tmat_ref(ang);
+        for (k, i) in (su..sl).enumerate() {
+            let mut val0 = 0.0;
+            let mut val1 = [0.0; 3];
+            for j in 0..ncar {
+                let c = tmat[(k, j)];
+                if c != 0.0 {
+                    val0 += c * car0[j];
+                    for r in 0..3 {
+                        val1[r] += c * car1[r * ncar + j];
+                    }
+                }
+            }
+            wfn0[i] = val0;
+            for r in 0..3 {
+                wfn1[r * nato + i] = val1[r];
+            }
         }
     }
     (wfn0, wfn1)
@@ -364,7 +431,27 @@ impl<'m> RKS<'m> {
         // 每个原子轨道的归属原子与有效半径（用于格点积分按块筛选）
         let ato_list = if int_form == "car" { &atos.cars } else { &atos.sphs };
         let ao_atm: Vec<usize> = ato_list.iter().map(|a| a.atm).collect();
-        let ao_r: Vec<f64> = ato_list.iter().map(|a| ato_extent(a, 1.0e-7)).collect();
+        let ao_r: Vec<f64> = if int_form == "car" {
+            atos.cars.iter().map(|a| ato_extent(a, 1.0e-7)).collect()
+        } else {
+            // 球谐分量没有笛卡尔 (l, m, n)，用同一壳层笛卡尔分量的最大有效半径作为上界
+            let shls = &mole.basis().shls;
+            let uplo_sph = shls.uplo("sph");
+            let uplo_car = shls.uplo("car");
+            let mut ao_r = vec![0.0f64; ato_list.len()];
+            for s in 0..shls.len() {
+                let [su, sl] = uplo_sph[s];
+                let [cu, cl] = uplo_car[s];
+                let mut ext = 0.0f64;
+                for j in cu..cl {
+                    ext = ext.max(ato_extent(&atos.cars[j], 1.0e-7));
+                }
+                for k in su..sl {
+                    ao_r[k] = ext;
+                }
+            }
+            ao_r
+        };
         let natm = mole.atoms.len();
         let mut ao_by_atm: Vec<Vec<usize>> = vec![Vec::new(); natm];
         for (i, &a) in ao_atm.iter().enumerate() {

@@ -3,7 +3,9 @@ use std::io::Write;
 
 /// Obj格式文件(.obj)写入器,用于3D模型导出
 pub struct ObjWriter {
+    /// 顶点坐标列表
     pub verts: Vec<[f64; 3]>,
+    /// 三角面片列表（每项为三个顶点的索引）
     pub faces: Vec<[usize; 3]>,
 }
 

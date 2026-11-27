@@ -16,25 +16,15 @@ fn main() {
 
     let mut bases = Vec::new();
     if txts_dir.is_dir() {
-        for entry in fs::read_dir(&txts_dir)
-            .expect("读取基组目录失败")
-            .filter_map(|entry| entry.ok())
-        {
+        for entry in fs::read_dir(&txts_dir).expect("读取基组目录失败").filter_map(|entry| entry.ok()) {
             let path = entry.path();
             if path.extension().and_then(|ext| ext.to_str()) != Some("txt") {
                 continue;
             }
-            let (Some(stem), Some(file)) = (
-                path.file_stem().and_then(|stem| stem.to_str()),
-                path.file_name().and_then(|file| file.to_str()),
-            ) else {
+            let (Some(stem), Some(file)) = (path.file_stem().and_then(|stem| stem.to_str()), path.file_name().and_then(|file| file.to_str())) else {
                 continue;
             };
-            let name = stem
-                .chars()
-                .filter(|char| !char.is_whitespace())
-                .collect::<String>()
-                .to_lowercase();
+            let name = stem.chars().filter(|char| !char.is_whitespace()).collect::<String>().to_lowercase();
             println!("cargo:rerun-if-changed={}", path.display());
             bases.push((name, file.to_string()));
         }
@@ -46,12 +36,10 @@ fn main() {
 
     let mut code = String::new();
     code.push_str("// 该文件由 build.rs 自动生成, 请勿手动修改\n");
+    code.push_str("/// 内嵌的基组表, 每项为 (归一化基组名, 基组文件内容)\n");
     code.push_str("pub static BASIS_SETS: &[(&str, &str)] = &[\n");
     for (name, file) in bases.iter() {
-        let _ = writeln!(
-            code,
-            "    ({name:?}, include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/rsbse/txts/\", {file:?}))),"
-        );
+        let _ = writeln!(code, "    ({name:?}, include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/rsbse/txts/\", {file:?}))),");
     }
     code.push_str("];\n");
 

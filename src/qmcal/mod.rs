@@ -3,13 +3,18 @@
 
 use std::f64::consts::PI;
 
+/// DHMO 方法相关计算
 pub mod dhmo;
+/// DHMO 方法的第二版实现（任意朝向 p 轨道的重叠积分）
 pub mod dhmo2;
 pub mod diis;
 pub mod guess;
+/// Hartree-Fock（HF）自洽场计算
 pub mod hf;
+/// Kohn-Sham（KS）密度泛函理论自洽场计算
 pub mod ks;
 pub mod lks;
+/// 半经验（Semi-Empirical）量子化学方法
 pub mod se;
 
 /// 计算Slater交换泛函的数值

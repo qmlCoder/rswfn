@@ -9,7 +9,9 @@ use std::collections::HashMap;
 
 /// Orca输入文件(.inp)读取器
 pub struct InpReader {
+    /// 文件中各数据块的标记位置(行号)
     pub marks: HashMap<String, usize>,
+    /// 文件行
     pub lines: Vec<String>,
 }
 

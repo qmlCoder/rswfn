@@ -1,3 +1,5 @@
+//! 键能量的可加分解（闭壳层、杂化泛函）。
+
 use crate::base::Mole;
 
 use super::energy_v1;
@@ -44,6 +46,7 @@ impl BondEnergy {
 
 /// 键能量计算器
 pub struct Calculator<'m> {
+    /// 分子引用
     pub mole: &'m Mole,
 }
 

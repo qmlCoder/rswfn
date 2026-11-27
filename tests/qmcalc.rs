@@ -1,4 +1,6 @@
 use rswfn::base::{Atoms, Basis, Mole, Shl};
+use rswfn::datas::btrans;
+use rswfn::props::gridprop::wfnfunc;
 use rswfn::qmcal::hf::RHF;
 use rswfn::qmcal::ks::{RKS, UKS};
 use rswfn::rsxcs::XcFunc;
@@ -214,4 +216,71 @@ fn test_lks_c2h4() {
     assert_eq!(back.coefs().get_cmat("car", &back).ncols(), res.npi, "mwfn π 轨道数不一致");
     assert_eq!(back.coefs().obt_eles(&back), [res.nocc(), res.nocc()], "mwfn π 电子数不一致");
     std::fs::remove_file(&mwfn_path).ok();
+}
+
+/// 球谐（5D/7F）基组下 KS 格点求值：
+/// 球谐壳层没有单独的笛卡尔 (l, m, n)，格点上的 χ 必须先算该壳层的笛卡尔分量，
+/// 再按 `φ_sph = car2sph_tmat · φ_car` 组合。
+#[test]
+fn test_spherical_basis_ks_grid() {
+    let mole = Mole::from_file("moles/C2H4.out");
+    assert_eq!(mole.basis().int_form(), "car", "fixture 应为 6D 基组");
+
+    // 把 6D 基组统一成球谐形式，构造一个不含系数的球谐分子
+    let sph_basis = mole.basis().unify_form("sph");
+    let mole_sph = Mole::new(mole.atoms.clone(), Some(sph_basis), None);
+    assert_eq!(mole_sph.basis().int_form(), "sph");
+
+    // 修复前这里会在 sym2lmn("D 0") 处 panic
+    let rks = RKS::with_grid(&mole_sph, 20, 50, XcFunc::B3LYP);
+    let nato = rks.nato;
+    assert_eq!(nato, mole_sph.basis().shls.nato("sph"), "球谐基函数数量不一致");
+    assert_eq!(rks.chi0.len(), rks.grids.len() * nato);
+
+    // 取一个 d 壳层，校验格点值等于笛卡尔分量的 car2sph 组合
+    let basis = mole_sph.basis();
+    let atos = basis.atos();
+    let shls = &basis.shls;
+    let uplo_sph = shls.uplo("sph");
+    let uplo_car = shls.uplo("car");
+    let s = (0..shls.len()).find(|&s| shls.get(s).ang == 2).expect("基线应包含 d 壳层");
+    let ang = shls.get(s).ang;
+    let [su, sl] = uplo_sph[s];
+    let [cu, cl] = uplo_car[s];
+    // 球谐基函数应为归一化的：S_sph 的 d 块对角应接近 1，
+    // 否则用日志里的球谐 MO 系数构造的密度会失真
+    let smat_sph = mole_sph.basis().get_smat("sph", &mole_sph);
+    for i in su..sl {
+        assert!((smat_sph[(i, i)] - 1.0).abs() < 1.0e-6, "sph 基函数未归一化: S[{i},{i}] = {}", smat_sph[(i, i)]);
+    }
+
+    let tmat = btrans::car2sph_tmat(ang);
+    let grid = rks.grids[0];
+    let atoms = mole_sph.atoms();
+    let ncar = cl - cu;
+    let mut car0 = vec![0.0; ncar];
+    let mut car1 = vec![[0.0; 3]; ncar];
+    for (j, idx) in (cu..cl).enumerate() {
+        let ato = &atos.cars[idx];
+        let [ax, ay, az] = atoms.get(ato.atm).xyz;
+        let xyz = [grid[0] - ax, grid[1] - ay, grid[2] - az];
+        let (val0, val1, _) = wfnfunc::cgf(&xyz, ato.lmn(), &ato.alps, ato.coes_norm(), 1);
+        car0[j] = val0;
+        car1[j] = val1;
+    }
+    for k in 0..(sl - su) {
+        let mut expected0 = 0.0;
+        let mut expected1 = [0.0; 3];
+        for j in 0..ncar {
+            let c = tmat[(k, j)];
+            expected0 += c * car0[j];
+            for r in 0..3 {
+                expected1[r] += c * car1[j][r];
+            }
+        }
+        assert!((rks.chi0[su + k] - expected0).abs() < 1.0e-10, "sph χ[{k}] 与笛卡尔组合不一致");
+        for r in 0..3 {
+            assert!((rks.chi1[r * nato + su + k] - expected1[r]).abs() < 1.0e-10, "sph ∂χ/∂{r}[{k}] 与笛卡尔组合不一致");
+        }
+    }
 }

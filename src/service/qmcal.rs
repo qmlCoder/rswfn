@@ -1,4 +1,4 @@
-//! 量子化学计算任务（HF / DFT）。
+//! 量子化学计算任务（HF / DFT / LKS / DHMO）。
 
 use std::path::{Path, absolute};
 use std::time::{Duration, Instant};
@@ -10,7 +10,7 @@ use crate::rsbse;
 use crate::rsxcs::{XcFunc, supported_names};
 use crate::writer::{FchWriter, MfnWriter, Writer};
 
-use super::{ServiceResult, ext_of};
+use super::{ServiceResult, absolute_str, ext_of};
 
 /// `qmcal hf` / `qmcal dft` 的 SCF 数值参数
 #[derive(Clone, Copy, Debug)]
@@ -407,5 +407,30 @@ pub fn lks_with(input: &Path, basis: Option<&str>, func: &str, npi_elec: Option<
     if !converged {
         report.notes.push(format!("警告: SCF 在 {niter} 次迭代后仍未收敛，结果可能不可靠"));
     }
+    Ok(report)
+}
+
+/// DHMO 计算：读取 `.dmi`（局部坐标系数据），输出 `.dmo`
+pub fn dhmo(input: &Path, output: Option<&Path>) -> ServiceResult<Report> {
+    if ext_of(input).as_deref() != Some("dmi") {
+        return Err(format!("DHMO 计算的输入必须是 .dmi 文件，收到: {}", input.display()));
+    }
+    let text = std::fs::read_to_string(input).map_err(|err| format!("无法读取输入文件 {}: {err}", input.display()))?;
+    if !text.lines().any(|line| line.trim() == "#atos") {
+        return Err(format!("{} 缺少 `#atos`（局部坐标系）数据，无法进行 DHMO 计算；请使用含 #atos 段的 .dmi 文件", input.display()));
+    }
+    let from_path = absolute_str(input, "输入文件")?;
+    let dest = match output {
+        Some(output) => Some(absolute_str(output, "输出文件")?),
+        None => None,
+    };
+    let shown = dest.clone().unwrap_or_else(|| from_path.replace(".dmi", ".dmo"));
+
+    qmcal::dhmo::output(&from_path, dest);
+
+    let mut report = Report::new("DHMO 计算");
+    report.fields.push(Field::new("输入", from_path));
+    report.fields.push(Field::new("输出", shown));
+    report.notes.push("DHMO 计算完成".to_string());
     Ok(report)
 }

@@ -1,4 +1,3 @@
-/// Orca输出文件(.out)读取器
 use ndarray::Array2;
 use regex::Regex;
 
@@ -8,6 +7,7 @@ use crate::reader::{Reader, read_lines, shl_basis, shl_forms};
 use std::collections::HashMap;
 use std::vec;
 
+/// Orca输出文件(.out)读取器
 pub struct OutReader {
     /// 文件中各数据块的位置标记
     pub marks: HashMap<String, usize>,
@@ -47,12 +47,7 @@ impl OutReader {
                 nato = line[47..].trim().parse().unwrap();
             }
         }
-        OutReader {
-            marks,
-            lines,
-            natm,
-            nato,
-        }
+        OutReader { marks, lines, natm, nato }
     }
 
     /// 读取几何结构
@@ -131,33 +126,17 @@ impl OutReader {
             log::debug!("lidx: {}, {}", lidx, self.lines[lidx]);
             let idx_part = &self.lines[lidx + 0][16..];
             log::debug!("idx_part: {idx_part}");
-            let idxs: Vec<usize> = idx_part
-                .char_indices()
-                .step_by(10)
-                .map(|(i, _)| idx_part[i..i + 10].trim().parse().unwrap())
-                .collect();
+            let idxs: Vec<usize> = idx_part.char_indices().step_by(10).map(|(i, _)| idx_part[i..i + 10].trim().parse().unwrap()).collect();
             let eng_part = &self.lines[lidx + 1][16..];
-            let engs: Vec<f64> = eng_part
-                .char_indices()
-                .step_by(10)
-                .map(|(i, _)| eng_part[i..i + 10].trim().parse().unwrap())
-                .collect();
+            let engs: Vec<f64> = eng_part.char_indices().step_by(10).map(|(i, _)| eng_part[i..i + 10].trim().parse().unwrap()).collect();
             obt_engs.extend(engs);
             let occ_part = &self.lines[lidx + 2][16..];
-            let occs: Vec<f64> = occ_part
-                .char_indices()
-                .step_by(10)
-                .map(|(i, _)| occ_part[i..i + 10].trim().parse().unwrap())
-                .collect();
+            let occs: Vec<f64> = occ_part.char_indices().step_by(10).map(|(i, _)| occ_part[i..i + 10].trim().parse().unwrap()).collect();
             obt_occs.extend(occs);
             for ato in 0..nato {
                 let line = &self.lines[lidx + 4 + ato];
                 let coef_part = &line[16..];
-                let coefs: Vec<f64> = coef_part
-                    .char_indices()
-                    .step_by(10)
-                    .map(|(i, _)| coef_part[i..i + 10].trim().parse().unwrap())
-                    .collect();
+                let coefs: Vec<f64> = coef_part.char_indices().step_by(10).map(|(i, _)| coef_part[i..i + 10].trim().parse().unwrap()).collect();
                 for (i, obt) in idxs.iter().enumerate() {
                     cmat[[ato, *obt]] = coefs[i];
                 }

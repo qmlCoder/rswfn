@@ -1,9 +1,12 @@
+//! 键轴周围方向向量的生成。
+
 use crate::base::{Mole, Vec3};
 use crate::maths;
 use std::f64::consts::PI;
 
 /// 键方向计算器，用于生成键轴周围的方向向量
 pub struct Calculator<'m> {
+    /// 分子引用
     pub mole: &'m Mole,
 }
 

@@ -4,6 +4,7 @@ use crate::datas::consts::BOHR;
 use cached::proc_macro::cached;
 use std::sync::LazyLock;
 
+/// 元素基础数据表：(原子序数, 符号, 共价半径(Å), 周期表行号, 列号, 显示颜色)
 #[rustfmt::skip]
 pub const ELEM_DATA:[(isize,&'static str,f64,usize,usize,&'static str);120]=[
     ( -1,"X" ,0.25, 0, 0,"#B21ED3"),
@@ -128,16 +129,24 @@ pub const ELEM_DATA:[(isize,&'static str,f64,usize,usize,&'static str);120]=[
     (118,"Og",1.22, 7,18,"#720000"),
 ];
 
+/// 元素信息（序号、符号、半径、周期表位置与显示颜色）
 #[derive(Clone)]
 pub struct ELEM {
+    /// 原子序数（-1 表示虚拟原子 X，0 表示 Bq）
     pub idx: isize,
+    /// 元素符号
     pub sym: String,
+    /// 原子半径（原子单位 Bohr）
     pub rad: f64,
+    /// 在周期表中的行号
     pub row: usize,
+    /// 在周期表中的列号
     pub col: usize,
+    /// 显示颜色（十六进制字符串）
     pub color: String,
 }
 
+/// 由 `ELEM_DATA` 构建的元素信息表（半径已由 Å 换算为原子单位 Bohr）
 #[rustfmt::skip]
 pub static ELEMS:LazyLock<Vec<ELEM>>=LazyLock::new(|| {
     ELEM_DATA.iter().map(|&(idx, sym, rad,row,col,color)| {
@@ -244,6 +253,7 @@ pub fn atm2row(atm: usize) -> usize {
     return 8;
 }
 
+/// 电子壳层轨道顺序表 (n, l, m)，共 59 个轨道，按能量由低到高排列
 #[rustfmt::skip]
 pub const NLMS: [(usize, usize, isize); 59] = [
     (1, 0, 0),
@@ -307,6 +317,7 @@ pub const NLMS: [(usize, usize, isize); 59] = [
     (7, 1, 1),
 ];
 
+/// 各元素电子占据数表，行对应原子序数（1–118），列对应 `NLMS` 中的轨道
 #[rustfmt::skip]
 pub const ELES:[[usize;59];118]=[
     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -552,6 +563,13 @@ pub const OXIS: &[&[isize]] = &[
 ];
 
 // 获取元素的α电子数和β电子数
+/// 获取元素的 α 电子数和 β 电子数
+///
+/// # Parameters
+/// - `nuc`: 原子序数（从 1 开始）
+///
+/// # Returns
+/// `[α 电子数, β 电子数]`
 pub fn get_ab_nele(nuc: usize) -> [usize; 2] {
     let eles = ELES[nuc - 1];
     let mut nela = 0;

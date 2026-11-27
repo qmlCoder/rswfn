@@ -4,9 +4,9 @@ use std::sync::OnceLock;
 
 use crate::base::{Atos, Mole};
 use crate::datas::rdens;
+use crate::maths;
 use crate::props::gridprop::GridVals;
 use crate::props::gridprop::wfnfunc;
-use crate::maths;
 use crate::props::moleprop;
 use crate::rsint::EspCalculator;
 use ndarray::Array2;
@@ -17,7 +17,9 @@ use ndarray::Array2;
 /// [`Calculator::nuc_esp`]、[`Calculator::ele_esp`] 与 [`Calculator::tot_esp`]，
 /// 原理见 `docs/静电势.md`。
 pub struct Calculator<'m> {
+    /// 分子信息
     pub mole: &'m Mole,
+    /// 参与计算的原子索引（默认为全部原子）
     pub atms: &'m Vec<usize>,
     wfn_caler: wfnfunc::Calculator<'m>,
     mole_pi_pocv: OnceLock<Mole>,
@@ -70,25 +72,17 @@ impl<'m> Calculator<'m> {
 
     /// 获取仅包含 π 电子成分的分子对象（懒加载）
     pub fn mole_pi_pocv(&self) -> &Mole {
-        self.mole_pi_pocv.get_or_init(|| {
-            moleprop::variants::Calculator::new(self.mole)
-                .mole_pi_pocv()
-                .expect("π轨道投影失败")
-        })
+        self.mole_pi_pocv.get_or_init(|| moleprop::variants::Calculator::new(self.mole).mole_pi_pocv().expect("π轨道投影失败"))
     }
 
+    /// 获取仅包含 π 电子成分（基于 MOCV 方法）的分子对象（懒加载）
     pub fn mole_pi_mocv(&self) -> &Mole {
-        self.mole_pi_mocv.get_or_init(|| {
-            moleprop::variants::Calculator::new(self.mole)
-                .mole_pi_mocv()
-                .expect("π轨道投影失败")
-        })
+        self.mole_pi_mocv.get_or_init(|| moleprop::variants::Calculator::new(self.mole).mole_pi_mocv().expect("π轨道投影失败"))
     }
 
     /// 获取自旋分离后的 α 和 β 分子对象（懒加载）
     pub fn mole_spin(&self) -> &(Mole, Mole) {
-        self.mole_spin
-            .get_or_init(|| moleprop::variants::Calculator::new(self.mole).mole_spin())
+        self.mole_spin.get_or_init(|| moleprop::variants::Calculator::new(self.mole).mole_spin())
     }
 
     // 计算一个点处的电子密度，这些只计算一个点的函数不需要使用numpy数组传参，但是如果有格点的话就需要了
@@ -152,13 +146,7 @@ impl<'m> Calculator<'m> {
                 xyzs.push(atoms.get(ato.atm).xyz);
                 r2cut.push(20.0 / amin);
             }
-            RhoPlan {
-                atos,
-                dmat,
-                idxs,
-                xyzs,
-                r2cut,
-            }
+            RhoPlan { atos, dmat, idxs, xyzs, r2cut }
         })
     }
 
@@ -171,12 +159,9 @@ impl<'m> Calculator<'m> {
         let plan = self.rho_plan();
         let [gx, gy, gz] = *grid;
         if level == 0 {
-            SIG_BUF
-                .with(|sig| V0_BUF.with(|v0| rho0_core(plan, gx, gy, gz, &mut sig.borrow_mut(), &mut v0.borrow_mut())))
+            SIG_BUF.with(|sig| V0_BUF.with(|v0| rho0_core(plan, gx, gy, gz, &mut sig.borrow_mut(), &mut v0.borrow_mut())))
         } else {
-            SIG_BUF.with(|sig| {
-                GV_BUF.with(|wfns| rho_core(plan, gx, gy, gz, level, &mut sig.borrow_mut(), &mut wfns.borrow_mut()))
-            })
+            SIG_BUF.with(|sig| GV_BUF.with(|wfns| rho_core(plan, gx, gy, gz, level, &mut sig.borrow_mut(), &mut wfns.borrow_mut())))
         }
     }
 
@@ -208,19 +193,15 @@ impl<'m> Calculator<'m> {
                 ato_rhos[i].val0 += ato_wfns[i].val0 * ato_wfns[j].val0 * pmat_car[(i, j)];
                 if level >= 1 {
                     for k in 0..3 {
-                        ato_rhos[i].val1[k] += (ato_wfns[i].val0 * ato_wfns[j].val1[k]
-                            + ato_wfns[j].val0 * ato_wfns[i].val1[k])
-                            * pmat_car[(i, j)];
+                        ato_rhos[i].val1[k] += (ato_wfns[i].val0 * ato_wfns[j].val1[k] + ato_wfns[j].val0 * ato_wfns[i].val1[k]) * pmat_car[(i, j)];
                     }
                 }
                 if level >= 2 {
                     for k in 0..3 {
                         for l in 0..3 {
-                            ato_rhos[i].val2[k][l] += (ato_wfns[i].val2[k][l] * ato_wfns[j].val0
-                                + ato_wfns[i].val1[k] * ato_wfns[j].val1[l]
-                                + ato_wfns[i].val1[l] * ato_wfns[j].val1[k]
-                                + ato_wfns[i].val0 * ato_wfns[j].val2[k][l])
-                                * pmat_car[(i, j)];
+                            ato_rhos[i].val2[k][l] +=
+                                (ato_wfns[i].val2[k][l] * ato_wfns[j].val0 + ato_wfns[i].val1[k] * ato_wfns[j].val1[l] + ato_wfns[i].val1[l] * ato_wfns[j].val1[k] + ato_wfns[i].val0 * ato_wfns[j].val2[k][l])
+                                    * pmat_car[(i, j)];
                         }
                     }
                 }
@@ -315,8 +296,7 @@ impl<'m> Calculator<'m> {
     /// 计算 sign(λ₂)ρ，用于 NCI 分析
     pub fn signl2rho(&self, grid: &[f64; 3]) -> f64 {
         let grid_vals = self.mol_rho_dm(grid, 2);
-        let hessian =
-            Array2::from_shape_vec((3, 3), grid_vals.val2.iter().cloned().flatten().collect()).expect("矩阵转换失败");
+        let hessian = Array2::from_shape_vec((3, 3), grid_vals.val2.iter().cloned().flatten().collect()).expect("矩阵转换失败");
         let eig_vals = maths::eigh(&hessian).0;
         let lambda2 = eig_vals[1];
         let singl2 = if lambda2 < 0.0 {
@@ -542,15 +522,7 @@ impl<'m> Calculator<'m> {
 }
 
 /// 根据密度矩阵计算电子密度（自由函数版本）
-pub fn mol_rho_dm(
-    ato_atms: &Vec<usize>,
-    dmat_car: &Array2<f64>,
-    ato_wfn0: &Vec<f64>,
-    ato_wfn1: &Vec<[f64; 3]>,
-    ato_wfn2: &Vec<[[f64; 3]; 3]>,
-    atms: &Vec<usize>,
-    level: usize,
-) -> (f64, [f64; 3], [[f64; 3]; 3]) {
+pub fn mol_rho_dm(ato_atms: &Vec<usize>, dmat_car: &Array2<f64>, ato_wfn0: &Vec<f64>, ato_wfn1: &Vec<[f64; 3]>, ato_wfn2: &Vec<[[f64; 3]; 3]>, atms: &Vec<usize>, level: usize) -> (f64, [f64; 3], [[f64; 3]; 3]) {
     let mut mol_rho0 = 0.0;
     let mut mol_rho1 = [0.0; 3];
     let mut mol_rho2 = [[0.0; 3]; 3];
@@ -586,39 +558,12 @@ pub fn mol_rho_dm(
 
             // 二阶导数：dxx
             if level >= 2 {
-                mol_rho2[0][0] += (ato_wfn2[i][0][0] * ato_wfn0[j]
-                    + 2.0 * ato_wfn1[i][0] * ato_wfn1[j][0]
-                    + ato_wfn0[i] * ato_wfn2[j][0][0])
-                    * d
-                    * k;
-                mol_rho2[1][1] += (ato_wfn2[i][1][1] * ato_wfn0[j]
-                    + 2.0 * ato_wfn1[i][1] * ato_wfn1[j][1]
-                    + ato_wfn0[i] * ato_wfn2[j][1][1])
-                    * d
-                    * k;
-                mol_rho2[2][2] += (ato_wfn2[i][2][2] * ato_wfn0[j]
-                    + 2.0 * ato_wfn1[i][2] * ato_wfn1[j][2]
-                    + ato_wfn0[i] * ato_wfn2[j][2][2])
-                    * d
-                    * k;
-                mol_rho2[0][1] += (ato_wfn2[i][0][1] * ato_wfn0[j]
-                    + ato_wfn1[i][0] * ato_wfn1[j][1]
-                    + ato_wfn1[i][1] * ato_wfn1[j][0]
-                    + ato_wfn0[i] * ato_wfn2[j][0][1])
-                    * d
-                    * k;
-                mol_rho2[0][2] += (ato_wfn2[i][0][2] * ato_wfn0[j]
-                    + ato_wfn1[i][0] * ato_wfn1[j][2]
-                    + ato_wfn1[i][2] * ato_wfn1[j][0]
-                    + ato_wfn0[i] * ato_wfn2[j][0][2])
-                    * d
-                    * k;
-                mol_rho2[1][2] += (ato_wfn2[i][1][2] * ato_wfn0[j]
-                    + ato_wfn1[i][1] * ato_wfn1[j][2]
-                    + ato_wfn1[i][2] * ato_wfn1[j][1]
-                    + ato_wfn0[i] * ato_wfn2[j][1][2])
-                    * d
-                    * k;
+                mol_rho2[0][0] += (ato_wfn2[i][0][0] * ato_wfn0[j] + 2.0 * ato_wfn1[i][0] * ato_wfn1[j][0] + ato_wfn0[i] * ato_wfn2[j][0][0]) * d * k;
+                mol_rho2[1][1] += (ato_wfn2[i][1][1] * ato_wfn0[j] + 2.0 * ato_wfn1[i][1] * ato_wfn1[j][1] + ato_wfn0[i] * ato_wfn2[j][1][1]) * d * k;
+                mol_rho2[2][2] += (ato_wfn2[i][2][2] * ato_wfn0[j] + 2.0 * ato_wfn1[i][2] * ato_wfn1[j][2] + ato_wfn0[i] * ato_wfn2[j][2][2]) * d * k;
+                mol_rho2[0][1] += (ato_wfn2[i][0][1] * ato_wfn0[j] + ato_wfn1[i][0] * ato_wfn1[j][1] + ato_wfn1[i][1] * ato_wfn1[j][0] + ato_wfn0[i] * ato_wfn2[j][0][1]) * d * k;
+                mol_rho2[0][2] += (ato_wfn2[i][0][2] * ato_wfn0[j] + ato_wfn1[i][0] * ato_wfn1[j][2] + ato_wfn1[i][2] * ato_wfn1[j][0] + ato_wfn0[i] * ato_wfn2[j][0][2]) * d * k;
+                mol_rho2[1][2] += (ato_wfn2[i][1][2] * ato_wfn0[j] + ato_wfn1[i][1] * ato_wfn1[j][2] + ato_wfn1[i][2] * ato_wfn1[j][1] + ato_wfn0[i] * ato_wfn2[j][1][2]) * d * k;
             }
         }
     }

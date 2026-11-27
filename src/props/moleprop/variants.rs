@@ -8,7 +8,9 @@ use crate::props::orbtprop;
 
 /// 新分子构造器，支持自旋分离和 π 电子投影
 pub struct Calculator<'m> {
+    /// 分子信息
     pub mole: &'m Mole,
+    /// 参与计算的原子索引
     pub atms: &'m Vec<usize>,
 }
 
@@ -58,6 +60,7 @@ impl<'m> Calculator<'m> {
         Ok(mole_pocv)
     }
 
+    /// 生成仅包含 π 电子成分（基于 MOCV 方法）的分子对象
     pub fn mole_pi_mocv(&self) -> Result<Mole, String> {
         let mut mole_caler = orbtprop::obtmat::Calculator::new(self.mole);
         mole_caler.atms = self.atms;

@@ -35,8 +35,8 @@ use rayon::prelude::*;
 
 use crate::base::Mole;
 use crate::datas::consts::BOHR;
-use crate::props::gridprop::density;
 use crate::maths;
+use crate::props::gridprop::density;
 
 /// 静电势类型。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,7 +111,9 @@ pub struct RespResult {
 
 /// RESP 电荷计算器。
 pub struct Calculator<'m> {
+    /// 分子引用
     pub mole: &'m Mole,
+    /// 参与拟合的原子索引列表（默认为全部分子原子）
     pub atms: &'m Vec<usize>,
 }
 
@@ -171,24 +173,8 @@ impl<'m> Calculator<'m> {
 
         // 3. 第一阶段：弱限制，所有原子均为独立拟合中心
         let groups1: Vec<Vec<usize>> = (0..natm).map(|i| vec![i]).collect();
-        let (stage1, iter1, delta1, ok1) = fit_stage(
-            &a_base,
-            &b_base,
-            total_rhs,
-            &groups1,
-            &[],
-            opts.hyper_a1,
-            opts.hyper_b,
-            &is_h,
-            opts.max_iter,
-            opts.conv,
-        )?;
-        log::info!(
-            "RESP 第一阶段：迭代 {} 次，最大电荷变化 {:.3e}{}",
-            iter1,
-            delta1,
-            if ok1 { "" } else { "（未收敛）" }
-        );
+        let (stage1, iter1, delta1, ok1) = fit_stage(&a_base, &b_base, total_rhs, &groups1, &[], opts.hyper_a1, opts.hyper_b, &is_h, opts.max_iter, opts.conv)?;
+        log::info!("RESP 第一阶段：迭代 {} 次，最大电荷变化 {:.3e}{}", iter1, delta1, if ok1 { "" } else { "（未收敛）" });
 
         // 4. 第二阶段：固定非 sp³/亚甲基碳及其氢，拟合 CH 部分
         let (mut charges, mut stage2, mut iter2, mut converged) = (stage1.clone(), false, 0, ok1);
@@ -202,29 +188,10 @@ impl<'m> Calculator<'m> {
                     }
                     m
                 };
-                let constraints: Vec<(Vec<usize>, f64)> = (0..natm)
-                    .filter(|&i| !active[i])
-                    .map(|i| (vec![i], stage1[i]))
-                    .collect();
+                let constraints: Vec<(Vec<usize>, f64)> = (0..natm).filter(|&i| !active[i]).map(|i| (vec![i], stage1[i])).collect();
 
-                let (stage2_chg, iter2_, delta2, ok2) = fit_stage(
-                    &a_base,
-                    &b_base,
-                    total_rhs,
-                    &groups2,
-                    &constraints,
-                    opts.hyper_a2,
-                    opts.hyper_b,
-                    &is_h,
-                    opts.max_iter,
-                    opts.conv,
-                )?;
-                log::info!(
-                    "RESP 第二阶段：迭代 {} 次，最大电荷变化 {:.3e}{}",
-                    iter2_,
-                    delta2,
-                    if ok2 { "" } else { "（未收敛）" }
-                );
+                let (stage2_chg, iter2_, delta2, ok2) = fit_stage(&a_base, &b_base, total_rhs, &groups2, &constraints, opts.hyper_a2, opts.hyper_b, &is_h, opts.max_iter, opts.conv)?;
+                log::info!("RESP 第二阶段：迭代 {} 次，最大电荷变化 {:.3e}{}", iter2_, delta2, if ok2 { "" } else { "（未收敛）" });
                 charges = stage2_chg;
                 stage2 = true;
                 iter2 = iter2_;
@@ -267,11 +234,7 @@ impl<'m> Calculator<'m> {
                     continue;
                 }
                 for dir in unit_sphere_points(n_expect) {
-                    let p = [
-                        center[0] + dir[0] * radius,
-                        center[1] + dir[1] * radius,
-                        center[2] + dir[2] * radius,
-                    ];
+                    let p = [center[0] + dir[0] * radius, center[1] + dir[1] * radius, center[2] + dir[2] * radius];
                     // 剔除落在其它原子最内层 vdW 球内的点
                     let mut keep = true;
                     for j in 0..natm {
@@ -317,10 +280,7 @@ impl<'m> Calculator<'m> {
 fn normal_equations(centers: &[[f64; 3]], pts: &[[f64; 3]], vals: &[f64]) -> (Array2<f64>, Vec<f64>) {
     let n = centers.len();
     // 并行计算每个拟合点到所有中心的倒数距离
-    let inv_r: Vec<Vec<f64>> = pts
-        .par_iter()
-        .map(|p| centers.iter().map(|c| 1.0 / dist(p, c)).collect())
-        .collect();
+    let inv_r: Vec<Vec<f64>> = pts.par_iter().map(|p| centers.iter().map(|c| 1.0 / dist(p, c)).collect()).collect();
 
     let mut a = Array2::<f64>::zeros((n, n));
     let mut b = vec![0.0; n];
@@ -433,11 +393,7 @@ fn fit_stage(
             q[i] = q_group[group_of[i]];
         }
 
-        last_delta = q
-            .iter()
-            .zip(q_old.iter())
-            .map(|(a, b)| (a - b).abs())
-            .fold(0.0, f64::max);
+        last_delta = q.iter().zip(q_old.iter()).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
         iter_used = iter;
 
         if a_penalty == 0.0 || last_delta < conv {
@@ -578,14 +534,8 @@ fn unit_sphere_points(numpt: usize) -> Vec<[f64; 3]> {
 /// 对 H–Cl 使用 Multiwfn 的 MK 专用半径；其它元素使用 UFF 半径除以 1.2。
 fn resp_vdw_radius(nuc: usize) -> f64 {
     // H–Cl，单位 Å
-    const MK_RADII: [f64; 17] = [
-        1.20, 1.20, 1.37, 1.45, 1.45, 1.50, 1.50, 1.40, 1.35, 1.30, 1.57, 1.65, 1.65, 1.80, 1.80, 1.75, 1.70,
-    ];
-    let ang = if (1..=17).contains(&nuc) {
-        MK_RADII[nuc - 1]
-    } else {
-        uff_radius(nuc) / 1.2
-    };
+    const MK_RADII: [f64; 17] = [1.20, 1.20, 1.37, 1.45, 1.45, 1.50, 1.50, 1.40, 1.35, 1.30, 1.57, 1.65, 1.65, 1.80, 1.80, 1.75, 1.70];
+    let ang = if (1..=17).contains(&nuc) { MK_RADII[nuc - 1] } else { uff_radius(nuc) / 1.2 };
     ang * BOHR
 }
 
@@ -596,16 +546,11 @@ fn uff_radius(nuc: usize) -> f64 {
         1.443, 1.181, // H, He
         1.2255, 1.3725, 2.0415, 1.9255, 1.83, 1.75, 1.682, 1.6215, // Li–Ne
         1.4915, 1.5105, 2.2495, 2.1475, 2.0735, 2.0175, 1.9735, 1.934, // Na–Ar
-        1.906, 1.6995, 1.6475, 1.5875, 1.572, 1.5115, 1.4805, 1.456, 1.436, 1.417, 1.7475, 1.3815, 2.1915, 2.14, 2.115,
-        2.1025, 2.0945, 2.0705, // K–Kr
-        2.057, 1.8205, 1.6725, 1.562, 1.5825, 1.526, 1.499, 1.4815, 1.4645, 1.4495, 1.574, 1.424, 2.2315, 2.196, 2.21,
-        2.235, 2.25, 2.202, // Rb–Xe
-        2.2585, 1.8515, 1.761, 1.778, 1.803, 1.7875, 1.7735, 1.76, 1.7465, 1.684, 1.7255, 1.714, 1.7045, 1.6955, 1.687,
-        1.6775, 1.82, // Cs–Lu
-        1.5705, 1.585, 1.5345, 1.477, 1.56, 1.42, 1.377, 1.6465, 1.3525, 2.1735, 2.1485, 2.185, 2.3545, 2.375,
-        2.3825, // Hf–Rn
-        2.45, 1.8385, 1.739, 1.698, 1.712, 1.6975, 1.712, 1.712, 1.6905, 1.663, 1.6695, 1.6565, 1.6495, 1.643, 1.637,
-        1.624, 1.618, // Fr–Lr
+        1.906, 1.6995, 1.6475, 1.5875, 1.572, 1.5115, 1.4805, 1.456, 1.436, 1.417, 1.7475, 1.3815, 2.1915, 2.14, 2.115, 2.1025, 2.0945, 2.0705, // K–Kr
+        2.057, 1.8205, 1.6725, 1.562, 1.5825, 1.526, 1.499, 1.4815, 1.4645, 1.4495, 1.574, 1.424, 2.2315, 2.196, 2.21, 2.235, 2.25, 2.202, // Rb–Xe
+        2.2585, 1.8515, 1.761, 1.778, 1.803, 1.7875, 1.7735, 1.76, 1.7465, 1.684, 1.7255, 1.714, 1.7045, 1.6955, 1.687, 1.6775, 1.82, // Cs–Lu
+        1.5705, 1.585, 1.5345, 1.477, 1.56, 1.42, 1.377, 1.6465, 1.3525, 2.1735, 2.1485, 2.185, 2.3545, 2.375, 2.3825, // Hf–Rn
+        2.45, 1.8385, 1.739, 1.698, 1.712, 1.6975, 1.712, 1.712, 1.6905, 1.663, 1.6695, 1.6565, 1.6495, 1.643, 1.637, 1.624, 1.618, // Fr–Lr
     ];
     if nuc < UFF.len() { UFF[nuc] } else { 2.0 }
 }

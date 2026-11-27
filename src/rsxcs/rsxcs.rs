@@ -27,27 +27,43 @@ fn functional(comp: XcComponent) -> Functional {
 fn eval(comp: XcComponent, spin: Spin, rho: &[f64], sigma: &[f64]) -> ::rsxcs::Evaluation {
     let xc = Xc::from_functional(functional(comp));
     let sigma = if comp.is_gga() { Some(sigma) } else { None };
-    xc.eval(spin, rho, sigma, None, None, Order::Vxc)
-        .expect("rsxcs 泛函求值失败")
+    xc.eval(spin, rho, sigma, None, None, Order::Vxc).expect("rsxcs 泛函求值失败")
 }
 
+/// 闭壳层下单分量交换相关泛函求值
+///
+/// VWN3 使用内置实现，其余分量交给外部 `rsxcs` 库求值。
+///
+/// # Parameters
+/// - `comp`: 待求值的交换/相关分量
+/// - `rho`: 各点的电子密度 ρ
+/// - `sigma`: 各点的密度梯度平方 σ = |∇ρ|²（仅 GGA 分量使用）
+///
+/// # Returns
+/// 包含每粒子能量、dE/dρ 与 dE/dσ 的闭壳层求值结果
 pub fn eval_rks(comp: XcComponent, rho: &[f64], sigma: &[f64]) -> RksEval {
     if comp == XcComponent::Vwn3 {
         return vwn3_rks(rho);
     }
     let out = eval(comp, Spin::Unpolarized, rho, sigma);
-    let vsigma = if comp.is_gga() {
-        out.vsigma
-    } else {
-        vec![0.0; rho.len()]
-    };
-    RksEval {
-        exc: out.exc,
-        vrho: out.vxc,
-        vsigma,
-    }
+    let vsigma = if comp.is_gga() { out.vsigma } else { vec![0.0; rho.len()] };
+    RksEval { exc: out.exc, vrho: out.vxc, vsigma }
 }
 
+/// 开壳层下单分量交换相关泛函求值
+///
+/// VWN3 使用内置实现，其余分量交给外部 `rsxcs` 库求值。
+///
+/// # Parameters
+/// - `comp`: 待求值的交换/相关分量
+/// - `rho_a`: 各点的 α 电子密度 ρ_α
+/// - `rho_b`: 各点的 β 电子密度 ρ_β
+/// - `saa`: 各点的 σ_αα = |∇ρ_α|²
+/// - `sbb`: 各点的 σ_ββ = |∇ρ_β|²
+/// - `sab`: 各点的 σ_αβ = ∇ρ_α·∇ρ_β
+///
+/// # Returns
+/// 包含每粒子能量、各分量的 dE/dρ 与 dE/dσ 的开壳层求值结果
 pub fn eval_uks(comp: XcComponent, rho_a: &[f64], rho_b: &[f64], saa: &[f64], sbb: &[f64], sab: &[f64]) -> UksEval {
     if comp == XcComponent::Vwn3 {
         return vwn3_uks(rho_a, rho_b);
@@ -107,23 +123,12 @@ pub(super) fn run_rks(id: u32, rho: &[f64], sigma: &[f64]) -> (Vec<f64>, Vec<f64
     let out = Xc::from_functional(func)
         .eval(Spin::Unpolarized, rho, sigma, None, None, Order::Vxc)
         .unwrap_or_else(|e| panic!("rsxcs 泛函 {} 求值失败: {e}", func.info().name));
-    let vsigma = if out.vsigma.is_empty() {
-        vec![0.0; rho.len()]
-    } else {
-        out.vsigma
-    };
+    let vsigma = if out.vsigma.is_empty() { vec![0.0; rho.len()] } else { out.vsigma };
     (out.exc, out.vxc, vsigma)
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn run_uks(
-    id: u32,
-    rho_a: &[f64],
-    rho_b: &[f64],
-    saa: &[f64],
-    sbb: &[f64],
-    sab: &[f64],
-) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+pub(super) fn run_uks(id: u32, rho_a: &[f64], rho_b: &[f64], saa: &[f64], sbb: &[f64], sab: &[f64]) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
     let func = Functional::from_id(id).unwrap_or_else(|| panic!("未知的 libxc 泛函编号 {id}"));
     let n = rho_a.len();
     let mut rho = Vec::with_capacity(2 * n);

@@ -5,8 +5,11 @@ use std;
 
 /// Xyz格式文件(.xyz)写入器
 pub struct XyzWriter {
+    /// 原子符号列表
     pub syms: Vec<String>,
+    /// 原子坐标（bohr）
     pub xyzs: Vec<[f64; 3]>,
+    /// 标题（注释行）
     pub title: String,
 }
 
@@ -26,20 +29,10 @@ impl XyzWriter {
         for i in 0..self.syms.len() {
             let sym = &self.syms[i];
             let [x, y, z] = &self.xyzs[i];
-            geom += &format!(
-                "{:>3}           {:>14.8}{:>14.8}{:>14.8}\n",
-                sym,
-                x / BOHR,
-                y / BOHR,
-                z / BOHR
-            );
+            geom += &format!("{:>3}           {:>14.8}{:>14.8}{:>14.8}\n", sym, x / BOHR, y / BOHR, z / BOHR);
         }
         let natm = self.syms.len();
-        temps::XYZ
-            .replace("{natm}", &format!("{}", natm))
-            .replace("{title}", &self.title)
-            .replace("{geome}", &geom)
-            .to_string()
+        temps::XYZ.replace("{natm}", &format!("{}", natm)).replace("{title}", &self.title).replace("{geome}", &geom).to_string()
     }
 
     /// 保存到文件

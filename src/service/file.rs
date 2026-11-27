@@ -1,22 +1,15 @@
-//! 文件级任务：坐标提取、格式转换、DHMO 与支持信息。
+//! 文件级任务：坐标提取、格式转换与支持信息。
 
 use std::path::{Path, PathBuf, absolute};
 
 use crate::base::Mole;
-use crate::qmcal;
 use crate::reader::{GjfReader, LogReader};
 use crate::report::{Column, Field, Report, Table};
 use crate::tools::log::Tool;
 use crate::utils;
 use crate::writer::{DmoWriter, GjfWriter, Writer, XyzWriter};
 
-use super::{ServiceResult, ext_of};
-
-fn absolute_str(path: &Path, what: &str) -> ServiceResult<String> {
-    let abs = absolute(path).map_err(|err| format!("无法解析{what}路径 {}: {err}", path.display()))?;
-    let text = abs.to_str().ok_or_else(|| format!("{what}路径不是有效的 UTF-8: {}", abs.display()))?;
-    Ok(text.to_string())
-}
+use super::{ServiceResult, absolute_str, ext_of};
 
 /// 提取分子坐标，可导出 .xyz
 pub fn coord(input: &Path, output: Option<&Path>, unit: &str) -> ServiceResult<Report> {
@@ -105,24 +98,6 @@ pub fn trans(input: &Path, output: &Path) -> ServiceResult<Report> {
     report.fields.push(Field::new("输入", from_path));
     report.fields.push(Field::new("输出", dest_path));
     report.notes.push("文件转换成功".to_string());
-    Ok(report)
-}
-
-/// DHMO 计算
-pub fn dmo(input: &Path, output: Option<&Path>) -> ServiceResult<Report> {
-    let from_path = absolute_str(input, "输入文件")?;
-    let dest = match output {
-        Some(output) => Some(absolute_str(output, "输出文件")?),
-        None => None,
-    };
-    let shown = dest.clone().unwrap_or_else(|| from_path.replace(".dmi", ".dmo"));
-
-    qmcal::dhmo::output(&from_path, dest);
-
-    let mut report = Report::new("DHMO 计算");
-    report.fields.push(Field::new("输入", from_path));
-    report.fields.push(Field::new("输出", shown));
-    report.notes.push("DHMO 计算完成".to_string());
     Ok(report)
 }
 

@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::LazyLock};
 
 use crate::maths;
 
+/// 径向电子密度表的距离采样点（原子单位 Bohr）
 #[rustfmt::skip]
 pub static RAD_DIST: LazyLock<Vec<f64>> = LazyLock::new(|| {
     vec![
@@ -48,6 +49,7 @@ pub static RAD_DIST: LazyLock<Vec<f64>> = LazyLock::new(|| {
     ]
 });
 
+/// 各元素的径向电子密度表：键为原子序数，值与 `RAD_DIST` 的距离采样点一一对应
 #[rustfmt::skip]
 pub static RAD_DENS: LazyLock<HashMap<usize,Vec<f64>>> = LazyLock::new(|| {
     let mut rad_dens=HashMap::new();
@@ -2022,7 +2024,7 @@ pub fn get_rad_dens_v1(atomic: usize, dist: f64) -> f64 {
     val
 }
 
-/// 原子密度参数（H-Ar），数据来源于 https://pubs.acs.org/doi/suppl/10.1021/ja100936w/suppl_file/ja100936w_si_001.pdf
+/// 原子密度参数（H-Ar），数据来源于 <https://pubs.acs.org/doi/suppl/10.1021/ja100936w/suppl_file/ja100936w_si_001.pdf>
 #[rustfmt::skip]
 pub static ADP: LazyLock<Vec<Vec<f64>>> = LazyLock::new(|| {
     let adp = vec![

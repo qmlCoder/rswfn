@@ -1,3 +1,5 @@
+//! 键级（Mayer、Wiberg 等）计算。
+
 use faer::stats::DistributionExt;
 use ndarray::{Array2, Axis, s};
 use std::collections::HashMap;
@@ -13,7 +15,9 @@ use crate::props::{atomprop, orbtprop};
 
 /// 键级计算器，支持 Mayer 和 Wiberg 键级分析
 pub struct Calculator<'m> {
+    /// 分子引用
     pub mole: &'m Mole,
+    /// 全部分子的原子索引列表
     pub atms: &'m Vec<usize>,
 }
 

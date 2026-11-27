@@ -14,6 +14,7 @@ use crate::{
 
 /// 格点文件(.cub)读取器
 pub struct CubReader {
+    /// 文件路径
     pub path: String,
     /// 文件行
     pub lines: Vec<String>,
@@ -31,12 +32,7 @@ impl CubReader {
         let natm = lines[2][..5].trim().parse::<isize>().unwrap();
         let mobt = if natm < 0 { true } else { false };
         let natm = natm.abs() as usize;
-        Self {
-            path,
-            lines,
-            mobt,
-            natm,
-        }
+        Self { path, lines, mobt, natm }
     }
 
     /// 读取格点信息
@@ -82,11 +78,7 @@ impl CubReader {
     pub fn read_vals(&self) -> (Vec<usize>, Vec<Vec<f64>>) {
         let (nobt, obts, skip) = match self.lines[6 + self.natm][..5].trim().parse::<usize>() {
             Ok(nobt) => {
-                let obts: Vec<usize> = self.lines[6 + self.natm][5..]
-                    .trim()
-                    .split_whitespace()
-                    .map(|e| e.parse::<usize>().unwrap())
-                    .collect();
+                let obts: Vec<usize> = self.lines[6 + self.natm][5..].trim().split_whitespace().map(|e| e.parse::<usize>().unwrap()).collect();
                 (nobt, obts, 1)
             }
             Err(_) => (1, vec![0], 0),
@@ -98,10 +90,7 @@ impl CubReader {
         let re = Regex::new(r"-?\d+.\d+E[+-]\d").unwrap();
         for line in self.lines.iter().skip(6 + self.natm + skip) {
             // 匹配改行文本中的所有数值
-            let line_vals: Vec<f64> = re
-                .find_iter(line)
-                .map(|cap| cap.as_str().parse::<f64>().unwrap())
-                .collect();
+            let line_vals: Vec<f64> = re.find_iter(line).map(|cap| cap.as_str().parse::<f64>().unwrap()).collect();
             for (i, val) in line_vals.iter().enumerate() {
                 vals[idx % nobt][idx / nobt] = *val;
                 idx += 1;

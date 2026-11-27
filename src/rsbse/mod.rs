@@ -78,17 +78,35 @@ fn bse_name(name: &str) -> String {
 
 /// 基组名统一为小写并去掉空白字符
 fn normalize_name(name: &str) -> String {
-    name.chars()
-        .filter(|char| !char.is_whitespace())
-        .collect::<String>()
-        .to_lowercase()
+    name.chars().filter(|char| !char.is_whitespace()).collect::<String>().to_lowercase()
 }
 
+/// 从基组文件读取基组对象
+///
+/// 读取 `path` 处的文本后交由 [`from_text`] 解析。
+///
+/// # Parameters
+/// - `path`: 基组文件路径
+/// - `atoms`: 分子原子数据，用于筛选并映射基组中的元素
+///
+/// # Returns
+/// 成功时返回与原子数据对应的基组；文件读取或解析失败时返回 `None`
 pub fn from_file(path: &str, atoms: &Atoms) -> Option<Basis> {
     let text = std::fs::read_to_string(path).ok()?;
     from_text(&text, atoms)
 }
 
+/// 从基组文本解析基组对象
+///
+/// 文本格式为 Gaussian94 基组格式（元素头 + 壳层头 + 指数/收缩系数数据行），
+/// 解析出各元素的壳层后按 `atoms` 中的原子顺序展开，并将元素索引映射为原子索引。
+///
+/// # Parameters
+/// - `text`: 基组文本内容
+/// - `atoms`: 分子原子数据，用于筛选基组覆盖的元素并建立映射
+///
+/// # Returns
+/// 成功时返回基组；基组不含分子中某个元素或解析失败时返回 `None`
 pub fn from_text(text: &str, atoms: &Atoms) -> Option<Basis> {
     let lines: Vec<String> = text.lines().map(|line| line.to_string()).collect();
     let datas = read_basis(&lines)?;
@@ -127,6 +145,17 @@ pub fn from_text(text: &str, atoms: &Atoms) -> Option<Basis> {
     Some(Basis::new(shls, None))
 }
 
+/// 解析 Gaussian94 格式的基组文本，返回逐条原始数据
+///
+/// 逐行识别元素头（如 `H 0` 或原子序数）、壳层头（如 `S 3 1.00`、`SP 3 1.00`）
+/// 与数据行（指数 + 各角动量对应的收缩系数），最后按（元素、壳层、角动量）排序。
+///
+/// # Parameters
+/// - `lines`: 基组文本按行切分得到的各行字符串
+///
+/// # Returns
+/// 每条数据为 `(元素索引, 壳层序号, 角动量, 指数, 收缩系数)` 的元组列表；
+/// 目前总是返回 `Some`
 // nuc, shl, ang, alp, coe
 pub fn read_basis(lines: &[String]) -> Option<Vec<(usize, usize, usize, f64, f64)>> {
     let mut ang_map: HashMap<char, usize> = HashMap::new();
@@ -207,10 +236,7 @@ pub fn read_basis(lines: &[String]) -> Option<Vec<(usize, usize, usize, f64, f64
 
 /// 根据元素符号返回从0开始的元素索引
 fn elem_index(sym: &str) -> Option<usize> {
-    ELEMS
-        .iter()
-        .find(|elm| elm.idx > 0 && elm.sym.eq_ignore_ascii_case(sym))
-        .map(|elm| elm.idx as usize - 1)
+    ELEMS.iter().find(|elm| elm.idx > 0 && elm.sym.eq_ignore_ascii_case(sym)).map(|elm| elm.idx as usize - 1)
 }
 
 /// 解析基组中的浮点数, 兼容Fortran的D指数

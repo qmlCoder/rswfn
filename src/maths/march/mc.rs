@@ -1,17 +1,17 @@
 //! 经典 Marching Cubes（三角表法）。
 //!
-//! 三角表 `MARCH` 直接内联在本文件；棱号 `0..11` 与 [`super::EDGES`] 对应。
+//! 三角表 `MARCH` 直接内联在本文件；棱号 `0..11` 与 `super::EDGES` 对应。
 
 use super::{Cube, EDGES, get_around_v1, grids2voxel};
 use ndarray::Array4;
 
-//  Marching Cubes 三角形表。
-//
-//  以 8 个角点的符号位组成 key（0..255）。每一行是该 case 的三角形棱号列表，
-//  每 3 个棱号组成一个三角形，最多 8 个三角形（24 个棱号）。
-//  不足 24 个的位置用 -1 补齐，遇到 -1 表示该 case 的三角形已结束。
-//
-//  棱号 0..11 与 `crate::maths::march::EDGES` 对应。
+/// Marching Cubes 三角形表。
+///
+/// 以 8 个角点的符号位组成 key（`0..255`）。每一行是该 case 的三角形棱号列表，
+/// 每 3 个棱号组成一个三角形，最多 8 个三角形（24 个棱号）。
+/// 不足 24 个的位置用 `-1` 补齐，遇到 `-1` 表示该 case 的三角形已结束。
+///
+/// 棱号 `0..11` 与 `crate::maths::march::EDGES` 对应。
 
 #[rustfmt::skip]
 pub static MARCH: [[i8; 24]; 256] = [
@@ -281,6 +281,16 @@ where
     super::extract_region(&func, cube, isov, step, xyzs, limit, march_cube_v1)
 }
 
+/// 对给定的格点数据用三角形表提取等值面顶点（正、负两层）
+///
+/// # Parameters
+/// - `shape`: 三个方向的格点数 `[nx, ny, nz]`
+/// - `grids`: 格点坐标列表
+/// - `values`: 每个格点处的标量值
+/// - `isov`: 等值面阈值
+///
+/// # Returns
+/// `(顶点表, 类型表)`，类型 `+1` 为正层、`-1` 为负层
 pub fn march_cube_v1(
     //等值面提取
     shape: &[usize; 3],
@@ -299,7 +309,16 @@ pub fn march_cube_v1(
     (verts, types)
 }
 
-// 将体素数据转为格点数据
+/// 将体素数据转为等值面顶点
+///
+/// 同时提取 `isov` 与 `-isov` 两层，负层的三角形顶点顺序被反转以保持法向一致。
+///
+/// # Parameters
+/// - `voxel`: 体素数据（最后一维为 `x, y, z, value`）
+/// - `isov`: 等值面阈值
+///
+/// # Returns
+/// `(正层顶点表, 负层顶点表)`
 pub fn voxel2verts(voxel: &Array4<f64>, isov: f64) -> (Vec<[f64; 3]>, Vec<[f64; 3]>) {
     let shape = voxel.shape();
     let nx = shape[0];

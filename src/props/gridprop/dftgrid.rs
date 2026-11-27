@@ -10,6 +10,7 @@ use crate::maths;
 
 /// DFT 网格计算器，用于生成球面、径向和分子格点
 pub struct Calculator<'m> {
+    /// 分子信息，提供原子坐标与共价半径
     pub mole: &'m Mole,
 }
 

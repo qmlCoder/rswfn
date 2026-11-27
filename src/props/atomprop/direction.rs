@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+//! 原子局部方向与法向量计算。
 
 use core::f64;
 use std::sync::Mutex;
@@ -16,7 +17,9 @@ use crate::props::gridprop;
 /// 提供原子法向量、局部坐标系（LCS）以及反应方向生成等功能，
 /// 用于后续的 π 轨道分析和方向自由价计算。
 pub struct Calculator<'m> {
+    /// 分子引用
     pub mole: &'m Mole,
+    /// 构造局部坐标系时使用的随机辅助向量
     pub rand_vz: Vec3,
     normals: Mutex<HashMap<usize, Option<Vec3>>>, // 记录每个原子的法向量
 }

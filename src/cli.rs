@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, command};
+use clap::{CommandFactory, Parser, Subcommand, command};
 
 use crate::dev;
-use crate::report::Report;
+use crate::report::{Report, disp_width};
 use crate::service::{self, atomprop, bondprop, file, gridprop, moleprop, orbtprop, qmcal};
 use crate::viewer;
 
@@ -48,8 +48,6 @@ enum Commands {
 
     /// 文件格式转换
     Trans { input: PathBuf, output: PathBuf },
-    /// DHMO 计算
-    Dmo { input: PathBuf, output: Option<PathBuf> },
 
     /// 量子化学计算（根据坐标与基组求解波函数）
     #[command(subcommand)]
@@ -91,6 +89,13 @@ enum Commands {
         color: String,
     },
 
+    /// 树状列出全部功能（命令树）
+    List {
+        /// 同时列出各命令的参数与选项
+        #[arg(short = 'a', long = "args")]
+        with_args: bool,
+    },
+
     /// 开发时测试
     Dev,
 }
@@ -118,9 +123,50 @@ fn parse_rotate(value: &str) -> Result<(f64, f64), String> {
 
 #[derive(Subcommand, Debug)]
 enum AtompropCmds {
-    /// 原子电荷/布居分析
+    /// 原子电荷/布居分析（对应 `props/atomprop/charge.rs`）
     #[command(subcommand)]
     Charge(ChargeCmds),
+    /// 原子活性分析：福井函数与自由价（对应 `props/atomprop/activity.rs`）
+    #[command(subcommand)]
+    Activity(ActivityCmds),
+}
+
+#[derive(Subcommand, Debug)]
+enum ChargeCmds {
+    /// Mulliken 布居分析
+    Mulliken {
+        /// 波函数文件路径（支持 .log/.out/.fch/.fchk/.gjf）
+        filepath: PathBuf,
+    },
+    /// Löwdin 布居分析
+    Lowdin {
+        /// 波函数文件路径
+        filepath: PathBuf,
+    },
+    /// Hirshfeld 电荷分析
+    Hirshfeld {
+        /// 波函数文件路径
+        filepath: PathBuf,
+    },
+    /// 自旋密度布居分析
+    Spin {
+        /// 波函数文件路径
+        filepath: PathBuf,
+        /// 电荷类型: mulliken | lowdin | hirshfeld
+        #[arg(long, default_value = "mulliken", value_parser = ["mulliken", "lowdin", "hirshfeld"])]
+        ctype: String,
+    },
+    /// RESP（限制性静电势）电荷分析
+    Resp {
+        /// 波函数文件路径（支持 .log/.out/.fch/.fchk）
+        filepath: PathBuf,
+        /// MK 拟合点密度（点/Å²）
+        #[arg(long, default_value_t = 6.0)]
+        pt_density: f64,
+        /// 只执行第一阶段（弱限制）拟合
+        #[arg(long, default_value_t = false)]
+        one_stage: bool,
+    },
     /// 原子π电子布居（POCV/MOCV 轨道改造方法）
     PiPop {
         /// 波函数文件路径（支持 .log/.out/.fch/.fchk/.gjf）
@@ -132,6 +178,10 @@ enum AtompropCmds {
         #[arg(long, default_value = "pocv", value_parser = ["pocv", "mocv"])]
         method: String,
     },
+}
+
+#[derive(Subcommand, Debug)]
+enum ActivityCmds {
     /// 福井函数与双描述符（需要 N、N+1、N-1 三个波函数文件）
     Fukui {
         /// 中性分子文件（N 电子）
@@ -177,71 +227,13 @@ enum AtompropCmds {
     },
 }
 
-#[derive(Subcommand, Debug)]
-enum ChargeCmds {
-    /// Mulliken 布居分析
-    Mulliken {
-        /// 波函数文件路径（支持 .log/.out/.fch/.fchk/.gjf）
-        filepath: PathBuf,
-    },
-    /// Löwdin 布居分析
-    Lowdin {
-        /// 波函数文件路径
-        filepath: PathBuf,
-    },
-    /// Hirshfeld 电荷分析
-    Hirshfeld {
-        /// 波函数文件路径
-        filepath: PathBuf,
-    },
-    /// 自旋密度布居分析
-    Spin {
-        /// 波函数文件路径
-        filepath: PathBuf,
-        /// 电荷类型: mulliken | lowdin | hirshfeld
-        #[arg(long, default_value = "mulliken", value_parser = ["mulliken", "lowdin", "hirshfeld"])]
-        ctype: String,
-    },
-    /// RESP（限制性静电势）电荷分析
-    Resp {
-        /// 波函数文件路径（支持 .log/.out/.fch/.fchk）
-        filepath: PathBuf,
-        /// MK 拟合点密度（点/Å²）
-        #[arg(long, default_value_t = 6.0)]
-        pt_density: f64,
-        /// 只执行第一阶段（弱限制）拟合
-        #[arg(long, default_value_t = false)]
-        one_stage: bool,
-    },
-}
-
 // ===== bondprop 子命令 =====
 
 #[derive(Subcommand, Debug)]
 enum BondpropCmds {
-    /// 键级分析
+    /// 键级分析（Mayer / Wiberg / 轨道键级 / π 键级 / 键级分解）
     #[command(subcommand)]
     Order(OrderCmds),
-    /// π键级分析（POCV/MOCV 方法）
-    PiOrder {
-        /// 波函数文件路径
-        filepath: PathBuf,
-        /// 轨道改造方法: pocv | mocv
-        #[arg(long, default_value = "pocv", value_parser = ["pocv", "mocv"])]
-        method: String,
-        /// 键级类型: mayer | wiberg
-        #[arg(long, default_value = "mayer", value_parser = ["mayer", "wiberg"])]
-        otype: String,
-    },
-    /// 键级分解，将两个原子间的键级分解为 σ、π、δ、φ 分量
-    Decom {
-        /// 原子1 序号（从1开始）
-        atm1: usize,
-        /// 原子2 序号（从1开始）
-        atm2: usize,
-        /// 波函数文件路径
-        filepath: PathBuf,
-    },
     /// 键能量分解（bond / rest / cross；仅支持闭壳层杂化泛函的 log/out 文件）
     Energy {
         /// 原子1 序号（从1开始）
@@ -274,6 +266,26 @@ enum OrderCmds {
         /// 键级类型: mayer | wiberg
         #[arg(long, default_value = "mayer", value_parser = ["mayer", "wiberg"])]
         otype: String,
+    },
+    /// π键级分析（POCV/MOCV 方法）
+    PiOrder {
+        /// 波函数文件路径
+        filepath: PathBuf,
+        /// 轨道改造方法: pocv | mocv
+        #[arg(long, default_value = "pocv", value_parser = ["pocv", "mocv"])]
+        method: String,
+        /// 键级类型: mayer | wiberg
+        #[arg(long, default_value = "mayer", value_parser = ["mayer", "wiberg"])]
+        otype: String,
+    },
+    /// 键级分解，将两个原子间的键级分解为 σ、π、δ、φ 分量
+    Decom {
+        /// 原子1 序号（从1开始）
+        atm1: usize,
+        /// 原子2 序号（从1开始）
+        atm2: usize,
+        /// 波函数文件路径
+        filepath: PathBuf,
     },
 }
 
@@ -431,6 +443,15 @@ enum QmcalCmds {
         #[arg(long = "maxiter", default_value = "60")]
         maxiter: usize,
     },
+    /// DHMO 计算（读入 `.dmi` 局部坐标系数据，输出 `.dmo`）
+    Dhmo {
+        /// 输入 .dmi 文件路径
+        #[arg(short, long)]
+        input: PathBuf,
+        /// 输出 .dmo 文件路径（缺省时与输入同名）
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 // ===== gridprop 子命令 =====
@@ -535,15 +556,113 @@ fn run(command: &Commands) -> Result<Report, String> {
         Commands::Gridprop(cmd) => run_gridprop(cmd),
         Commands::Coord { input, output, unit } => file::coord(input, output.as_deref(), unit),
         Commands::Trans { input, output } => file::trans(input, output),
-        Commands::Dmo { input, output } => file::dmo(input, output.as_deref()),
         Commands::Qmcal(cmd) => run_qmcal(cmd),
         Commands::Si { inputs, output } => file::si(inputs, output.as_deref()),
         Commands::View { .. } => Err("view 由 CLI 入口直接处理".to_string()),
+        Commands::List { with_args } => Ok(list_report(*with_args)),
         Commands::Dev => {
             dev::test();
             Ok(Report::new("开发测试").note("dev 测试已执行"))
         }
     }
+}
+
+/// 功能树中的一个节点：子命令或参数/选项
+enum TreeItem<'a> {
+    Cmd(&'a clap::Command),
+    Arg(&'a clap::Arg),
+}
+
+impl TreeItem<'_> {
+    /// 树中显示的标签：命令名，或参数/选项的用法
+    fn label(&self) -> String {
+        match self {
+            TreeItem::Cmd(cmd) => cmd.get_name().to_string(),
+            TreeItem::Arg(arg) => arg_label(arg),
+        }
+    }
+
+    /// 标签后的说明文字（只取第一行）
+    fn about(&self) -> String {
+        match self {
+            TreeItem::Cmd(cmd) => first_line(cmd.get_about()),
+            TreeItem::Arg(arg) => first_line(arg.get_help()),
+        }
+    }
+}
+
+/// 取 clap 说明文本的第一行
+fn first_line(text: Option<&clap::builder::StyledStr>) -> String {
+    text.map(|text| text.to_string()).and_then(|text| text.lines().next().map(|line| line.trim().to_string())).unwrap_or_default()
+}
+
+/// 参数/选项在树中的写法，如 `<filepath>`、`--method <pocv|mocv>`
+fn arg_label(arg: &clap::Arg) -> String {
+    let possible: Vec<String> = arg.get_possible_values().iter().map(|value| value.get_name().to_string()).collect();
+    let value = if possible.is_empty() { format!("<{}>", arg.get_id().as_str()) } else { format!("<{}>", possible.join("|")) };
+    if arg.is_positional() {
+        return value;
+    }
+    let Some(long) = arg.get_long() else {
+        return value;
+    };
+    if arg.get_action().takes_values() { format!("--{long} {value}") } else { format!("--{long}") }
+}
+
+/// 按显示宽度左对齐补齐
+fn pad_right(text: &str, width: usize) -> String {
+    let w = disp_width(text);
+    if w >= width { text.to_string() } else { format!("{text}{}", " ".repeat(width - w)) }
+}
+
+/// 递归收集命令树文本行
+fn collect_tree(cmd: &clap::Command, prefix: &str, with_args: bool, out: &mut Vec<String>) {
+    let mut items: Vec<TreeItem> = cmd.get_subcommands().filter(|sub| !sub.is_hide_set() && sub.get_name() != "help").map(TreeItem::Cmd).collect();
+    if with_args {
+        items.extend(
+            cmd.get_arguments()
+                .filter(|arg| !arg.is_hide_set() && !arg.is_global_set())
+                .filter(|arg| !matches!(arg.get_id().as_str(), "help" | "version"))
+                .map(TreeItem::Arg),
+        );
+    }
+
+    let width = items.iter().map(|item| disp_width(&item.label())).max().unwrap_or(0);
+    let total = items.len();
+    for (i, item) in items.iter().enumerate() {
+        let last = i + 1 == total;
+        let branch = if last { "└── " } else { "├── " };
+        let line = format!("{prefix}{branch}{}  {}", pad_right(&item.label(), width), item.about());
+        out.push(line.trim_end().to_string());
+        if let TreeItem::Cmd(sub) = item {
+            let next = format!("{prefix}{}", if last { "    " } else { "│   " });
+            collect_tree(sub, &next, with_args, out);
+        }
+    }
+}
+
+/// 由 clap 命令定义生成功能树报告（新增子命令后自动出现，无需改这里）
+fn list_report(with_args: bool) -> Report {
+    let cmd = Cli::command();
+    let version = cmd.get_version().unwrap_or_default();
+    let about = first_line(cmd.get_about());
+    let title = if about.is_empty() {
+        format!("rswfn {version} 功能列表")
+    } else {
+        format!("rswfn {version} — {about}")
+    };
+
+    let mut lines = Vec::new();
+    collect_tree(&cmd, "", with_args, &mut lines);
+
+    let mut report = Report::new(title);
+    for line in lines {
+        report = report.note(line);
+    }
+    if !with_args {
+        report = report.note("").note("提示: 加 `--args` 可同时列出各命令的参数与选项");
+    }
+    report
 }
 
 fn run_atomprop(cmd: &AtompropCmds) -> Result<Report, String> {
@@ -554,22 +673,24 @@ fn run_atomprop(cmd: &AtompropCmds) -> Result<Report, String> {
             ChargeCmds::Hirshfeld { filepath } => atomprop::hirshfeld(&service::load_mole(filepath)?),
             ChargeCmds::Spin { filepath, ctype } => atomprop::spin(&service::load_mole(filepath)?, ctype),
             ChargeCmds::Resp { filepath, pt_density, one_stage } => atomprop::resp(&service::load_mole(filepath)?, *pt_density, *one_stage),
+            ChargeCmds::PiPop { filepath, ctype, method } => atomprop::pi_pop(&service::load_mole(filepath)?, ctype, method),
         },
-        AtompropCmds::PiPop { filepath, ctype, method } => atomprop::pi_pop(&service::load_mole(filepath)?, ctype, method),
-        AtompropCmds::Fukui { filepath, anion, cation, ctype } => {
-            let mole = service::load_mole(filepath)?;
-            let mole_n = service::load_mole(anion)?;
-            let mole_p = service::load_mole(cation)?;
-            atomprop::fukui(&mole, &mole_n, &mole_p, ctype)
-        }
-        AtompropCmds::FukuiPi { filepath, anion, cation, ctype, method } => {
-            let mole = service::load_mole(filepath)?;
-            let mole_n = service::load_mole(anion)?;
-            let mole_p = service::load_mole(cation)?;
-            atomprop::fukui_pi(&mole, &mole_n, &mole_p, ctype, method)
-        }
-        AtompropCmds::Freev { filepath, otype } => atomprop::freev(&service::load_mole(filepath)?, otype),
-        AtompropCmds::FreevPi { filepath, otype } => atomprop::freev_pi(&service::load_mole(filepath)?, otype),
+        AtompropCmds::Activity(cmd) => match cmd {
+            ActivityCmds::Fukui { filepath, anion, cation, ctype } => {
+                let mole = service::load_mole(filepath)?;
+                let mole_n = service::load_mole(anion)?;
+                let mole_p = service::load_mole(cation)?;
+                atomprop::fukui(&mole, &mole_n, &mole_p, ctype)
+            }
+            ActivityCmds::FukuiPi { filepath, anion, cation, ctype, method } => {
+                let mole = service::load_mole(filepath)?;
+                let mole_n = service::load_mole(anion)?;
+                let mole_p = service::load_mole(cation)?;
+                atomprop::fukui_pi(&mole, &mole_n, &mole_p, ctype, method)
+            }
+            ActivityCmds::Freev { filepath, otype } => atomprop::freev(&service::load_mole(filepath)?, otype),
+            ActivityCmds::FreevPi { filepath, otype } => atomprop::freev_pi(&service::load_mole(filepath)?, otype),
+        },
     }
 }
 
@@ -579,9 +700,9 @@ fn run_bondprop(cmd: &BondpropCmds) -> Result<Report, String> {
             OrderCmds::Mayer { filepath } => bondprop::mayer(&service::load_mole(filepath)?),
             OrderCmds::Wiberg { filepath } => bondprop::wiberg(&service::load_mole(filepath)?),
             OrderCmds::Obt { obt, filepath, otype } => bondprop::order_obt(&service::load_mole(filepath)?, *obt, otype),
+            OrderCmds::PiOrder { filepath, method, otype } => bondprop::pi_order(&service::load_mole(filepath)?, method, otype),
+            OrderCmds::Decom { atm1, atm2, filepath } => bondprop::decom(&service::load_mole(filepath)?, *atm1, *atm2),
         },
-        BondpropCmds::PiOrder { filepath, method, otype } => bondprop::pi_order(&service::load_mole(filepath)?, method, otype),
-        BondpropCmds::Decom { atm1, atm2, filepath } => bondprop::decom(&service::load_mole(filepath)?, *atm1, *atm2),
         BondpropCmds::Energy { atm1, atm2, filepath } => bondprop::bond_energy(&service::load_mole(filepath)?, *atm1, *atm2),
     }
 }
@@ -694,5 +815,6 @@ fn run_qmcal(cmd: &QmcalCmds) -> Result<Report, String> {
             };
             qmcal::lks_with(input, basis.as_deref(), func, *npi_elec, output.as_deref(), *print_mo, &opts)
         }
+        QmcalCmds::Dhmo { input, output } => qmcal::dhmo(input, output.as_deref()),
     }
 }

@@ -5,6 +5,7 @@ use crate::props::bondprop::order;
 
 /// 芳香性计算器
 pub struct Calculator<'m> {
+    /// 分子信息
     pub mole: &'m Mole,
 }
 

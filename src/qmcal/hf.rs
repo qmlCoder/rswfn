@@ -72,6 +72,13 @@ pub fn rhf_ele_eng(dmat: &Array2<f64>, hmat: &Array2<f64>, fmat: &Array2<f64>) -
 }
 
 impl<'m> RHF<'m> {
+    /// 创建闭壳层 HF 计算器
+    ///
+    /// # Parameters
+    /// - `mole`: 分子结构引用，其基组决定默认积分形式
+    ///
+    /// # Returns
+    /// 使用默认收敛参数（最大迭代 100 次、能量阈值 1e-8）的计算器
     pub fn new(mole: &'m Mole) -> Self {
         Self {
             mole,

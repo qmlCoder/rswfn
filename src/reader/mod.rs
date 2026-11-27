@@ -1,3 +1,8 @@
+//! 分子文件读取模块
+//!
+//! 提供统一的[`Reader`] trait,以及各类量子化学程序文件(高斯、ORCA、molden、
+//! Multiwfn、格点文件等)的解析器,用于从中提取分子几何、基组与轨道系数等信息。
+
 #![allow(non_snake_case)]
 mod cub;
 mod dmo;
@@ -92,19 +97,31 @@ pub fn charge_number(charge: isize, multip: usize, total: usize) -> [usize; 2] {
     [nela as usize, nelb as usize]
 }
 
+/// 支持的文件类型
 #[derive(Debug)]
 pub enum FileType {
-    Gjf, // 高斯输入文件
-    Log, // 高斯输出文件
-    Fch, // 高斯检查点文件
-    Mol, // 分子文件
+    /// 高斯输入文件(.gjf)
+    Gjf,
+    /// 高斯输出文件(.log/.out)
+    Log,
+    /// 高斯检查点文件(.fch/.fchk)
+    Fch,
+    /// 分子文件(.mol)
+    Mol,
+    /// 结构数据文件(.sdf)
     Sdf,
+    /// 笛卡尔坐标文件(.xyz)
     Xyz,
-    Mde, // molden文件
-    Mfn, // Multiwfn波函数文件
-    Dmo, // 自定义的包含原子局部坐标系的文件
-    Inp, // Orca输入文件
-    Cub, // 格点文件
+    /// molden文件(.molden)
+    Mde,
+    /// Multiwfn波函数文件(.mwfn)
+    Mfn,
+    /// 自定义的包含原子局部坐标系的文件(.dmi/.dmo)
+    Dmo,
+    /// ORCA输入文件(.inp)
+    Inp,
+    /// 格点文件(.cub)
+    Cub,
 }
 
 /// 判断文件类型
@@ -179,7 +196,8 @@ pub fn shl_forms(ato_atms: &Vec<usize>, ato_shls: &Vec<usize>, ato_syms: &Vec<St
 }
 
 use crate::base::Shl;
-pub type BasData = (usize, usize, usize, f64, f64); // atm, shl, ang, alp, coe
+/// 原始基组数据元组: 原子索引、壳层索引、角量子数、指数、收缩系数
+pub type BasData = (usize, usize, usize, f64, f64);
 /// 从原始基组数据构建Basis对象
 pub fn shl_basis(datas: &Vec<BasData>, forms: &Vec<String>) -> Basis {
     let mut keys = vec![];
@@ -212,6 +230,7 @@ pub fn shl_basis(datas: &Vec<BasData>, forms: &Vec<String>) -> Basis {
 ///
 /// 包含频率、约化质量、力常数、红外强度及振动模式向量。
 pub struct Vibe {
+    /// 振动频率(波数,cm⁻¹)
     pub freq: f64,
     /// 约化质量
     pub redm: f64,
@@ -241,10 +260,17 @@ impl Vibe {
     }
 }
 
+/// 核独立化学位移(NICS)数据
+///
+/// 包含各向同性/各向异性屏蔽值、屏蔽张量及其特征值。
 #[derive(Debug)]
 pub struct Nics {
+    /// 各向同性屏蔽值(ppm)
     pub iso: f64,
+    /// 各向异性屏蔽值(ppm)
     pub ani: f64,
+    /// 3×3屏蔽张量(按行展开)
     pub mat: [f64; 9],
+    /// 屏蔽张量的三个特征值
     pub eig: [f64; 3],
 }

@@ -14,11 +14,16 @@ use std::str::FromStr;
 
 // use mem_dbg::MemDbg;
 
+/// 分子结构，包含原子结构、基组和分子轨道系数
 #[derive(Debug, Clone)]
 pub struct Mole {
+    /// 分子来源文件路径（若由文件读入则记录）
     pub path: Option<String>,
+    /// 原子结构
     pub atoms: Atoms,
+    /// 基组（可选）
     pub basis: Option<Basis>,
+    /// 分子轨道系数（可选）
     pub coefs: Option<Coefs>,
 }
 

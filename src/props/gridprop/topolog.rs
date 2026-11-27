@@ -13,6 +13,7 @@ use rayon::prelude::*;
 
 /// 拓扑分析计算器，用于寻找分子中的临界点
 pub struct Calculator<'m> {
+    /// 分子信息
     pub mole: &'m Mole,
 }
 
@@ -105,6 +106,7 @@ impl<'m> Calculator<'m> {
         grids
     }
 
+    /// 根据函数名（如 `mol_rho_dm`、`pi_rho_pocv`、`pi_rho_mocv`）返回计算密度的回调函数
     pub fn get_func(&self, func: &str) -> Box<dyn Fn(&[f64; 3]) -> GridVals + Send + Sync + 'm> {
         match func {
             "mol_rho_dm" => {
@@ -123,6 +125,10 @@ impl<'m> Calculator<'m> {
         }
     }
 
+    /// 遍历所有候选点，搜索并去重临界点
+    ///
+    /// 返回每个临界点的 `(坐标, 密度值, 临界点类型)`，临界点类型为 Hessian
+    /// 正、负本征值个数之差（如核临界点为 -3、键临界点为 -1）。
     pub fn analysis(&self, func: &str) -> Vec<([f64; 3], f64, i32)> {
         let func = self.get_func(func);
         let grids = self.get_grids();

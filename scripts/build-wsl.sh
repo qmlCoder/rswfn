@@ -36,7 +36,7 @@ for t in "$@"; do
         x86_64-unknown-linux-gnu) ;;
         x86_64-unknown-linux-musl)
             # 不要覆盖 linker，也不要设 crt-static：让 rustc 用自带的 self-contained
-            # musl 生成 static-pie（与 CI 的 .github/workflows/release.yml 一致）。
+            # musl 生成 static-pie（与 scripts/release.sh 的发布构建一致）。
             # 用 musl-gcc 当 linker 会得到「动态链接 musl」或「非 PIE 静态」的双错
             # 二进制，在目标机上启动即 segfault（TLS 未初始化）。
             # C 依赖（vendored openssl-sys）的编译器由 cc crate 自动找 musl-gcc
@@ -73,7 +73,7 @@ for t in "$@"; do
 
     log "打包 $asset"
     rm -f "$DIST/$asset"
-    # 与 release.yml 一致：tar 里带顶层目录 rswfn-<ver>-<target>/
+    # 安装脚本约定：tar 里带顶层目录 rswfn-<ver>-<target>/
     tar -czf "$DIST/$asset" -C "$DIST" "rswfn-$VER-$t"
     rm -rf "$stage"
 done

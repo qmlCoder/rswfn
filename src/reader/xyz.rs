@@ -9,8 +9,11 @@ use crate::reader::{Reader, read_lines};
 
 /// Xyz格式文件(.xyz)读取器
 pub struct XyzReader {
+    /// 文件路径
     pub path: String,
+    /// 缓存的多帧几何结构(惰性解析)
     pub geomes: OnceLock<Vec<Atoms>>,
+    /// 文件行
     pub lines: Vec<String>,
 }
 

@@ -19,10 +19,14 @@ use std::{
 const ANG_LEN_CAR: [usize; 5] = [1, 3, 6, 10, 15];
 const ANG_LEN_SPH: [usize; 5] = [1, 3, 5, 7, 9];
 
+/// 某种轨道形式（raw/sph/car）下的分子轨道系数
 #[derive(Debug)]
 pub struct Coef {
+    /// 每个原子轨道对应的原子索引
     pub atms: Vec<usize>,
+    /// 每个原子轨道对应的壳层索引
     pub shls: Vec<usize>,
+    /// 每个原子轨道对应的符号
     pub syms: Vec<String>,
     cmat: Array2<f64>,
     _dmat: OnceLock<Array2<f64>>,
@@ -96,14 +100,21 @@ impl Clone for Coef {
     }
 }
 
+/// 分子轨道系数集合，同时保存轨道能量、占据数以及三种形式的系数
 #[derive(Debug)]
 pub struct Coefs {
+    /// 原始（raw）形式的系数
     pub _coef_raw: Coef,
+    /// 球谐（sph）形式的系数，惰性转换得到
     pub _coef_sph: OnceLock<Coef>,
+    /// 笛卡尔（car）形式的系数，惰性转换得到
     pub _coef_car: OnceLock<Coef>,
+    /// 分子轨道能量列表（按轨道顺序）
     pub obt_engs: Vec<f64>,
+    /// 分子轨道占据数列表
     pub obt_occs: Vec<f64>,
-    pub obt_idxs: OnceLock<(Vec<usize>, Vec<usize>)>, // 占据轨道和空轨道索引
+    /// 占据轨道和空轨道索引缓存，依次为 (占据轨道索引, 空轨道索引)
+    pub obt_idxs: OnceLock<(Vec<usize>, Vec<usize>)>,
 }
 
 #[rustfmt::skip]

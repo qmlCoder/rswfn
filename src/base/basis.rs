@@ -13,15 +13,24 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
+/// 单个原子轨道（基组中的一个具体函数，如 s、px、dxy 等）
 #[derive(Debug, Clone)]
 pub struct Ato {
+    /// 所属原子的索引
     pub atm: usize,
+    /// 所属壳层的索引
     pub shl: usize,
+    /// 角动量量子数 l
     pub ang: usize,
+    /// 轨道符号（如 s、px、dxy）
     pub sym: String,
+    /// 定域性（0 表示高指数定域，1 表示弥散）
     pub loc: usize,
+    /// 轨道形式（"raw", "sph", "car"）
     pub form: String,
+    /// 高斯指数列表
     pub alps: Vec<f64>,
+    /// 收缩系数列表（与 `alps` 一一对应）
     pub coes: Vec<f64>,
     coes_norm: OnceLock<Vec<f64>>,
     lmn: OnceLock<[usize; 3]>,
@@ -39,16 +48,7 @@ impl Ato {
     /// - `form`: 轨道形式（"raw", "sph", "car"）
     /// - `alps`: 指数列表
     /// - `coes`: 收缩系数列表
-    pub fn new(
-        atm: usize,
-        shl: usize,
-        ang: usize,
-        sym: String,
-        loc: usize,
-        form: String,
-        alps: &Vec<f64>,
-        coes: &Vec<f64>,
-    ) -> Self {
+    pub fn new(atm: usize, shl: usize, ang: usize, sym: String, loc: usize, form: String, alps: &Vec<f64>, coes: &Vec<f64>) -> Self {
         let alps = alps.clone();
         let coes = coes.clone();
         let coes_norm = OnceLock::new();
@@ -90,10 +90,14 @@ impl Ato {
     }
 }
 
+/// 原子轨道集合，包含 raw、sph、car 三种形式
 #[derive(Debug, Clone)]
 pub struct Atos {
+    /// 原始形式的原子轨道
     pub raws: Vec<Ato>,
+    /// 球谐形式的原子轨道
     pub sphs: Vec<Ato>,
+    /// 笛卡尔形式的原子轨道
     pub cars: Vec<Ato>,
 }
 
@@ -164,13 +168,20 @@ impl Atos {
     }
 }
 
+/// 基组中的一个壳层（一组共享收缩系数的原始高斯函数）
 #[derive(Debug, Clone)]
 pub struct Shl {
+    /// 所属原子的索引
     pub atm: usize,
+    /// 壳层索引
     pub shl: usize,
+    /// 角动量量子数 l
     pub ang: usize,
-    pub form: String, // 1 sph 2 car
+    /// 函数形式（"sph" 球谐 / "car" 笛卡尔）
+    pub form: String,
+    /// 高斯指数列表
     pub alps: Vec<f64>,
+    /// 收缩系数列表（与 `alps` 一一对应）
     pub coes: Vec<f64>,
 }
 
@@ -185,14 +196,7 @@ impl Shl {
     /// - `alps`: 指数列表
     /// - `coes`: 收缩系数列表
     pub fn new(atm: usize, shl: usize, ang: usize, form: String, alps: Vec<f64>, coes: Vec<f64>) -> Self {
-        Self {
-            atm,
-            shl,
-            ang,
-            form,
-            alps,
-            coes,
-        }
+        Self { atm, shl, ang, form, alps, coes }
     }
     /// 返回归一化后的收缩系数
     pub fn coes_norm(&self) -> Vec<f64> {
@@ -217,9 +221,12 @@ impl Shl {
     }
 }
 
+/// 壳层集合，按原始顺序存储基组的所有壳层
 #[derive(Debug, Clone)]
 pub struct Shls {
+    /// 壳层列表
     pub shls: Vec<Shl>,
+    /// 各壳层在 raw/sph/car 三种形式下的起止索引缓存，依次为 [raw, sph, car]
     pub uplo: OnceLock<[Vec<[usize; 2]>; 3]>,
 }
 
@@ -232,10 +239,7 @@ impl Shls {
     /// # Parameters
     /// - `shls`: 壳层列表
     pub fn new(shls: Vec<Shl>) -> Shls {
-        Shls {
-            shls,
-            uplo: OnceLock::new(),
-        }
+        Shls { shls, uplo: OnceLock::new() }
     }
 
     /// 获取指定索引的壳层
@@ -325,12 +329,18 @@ impl Shls {
     }
 }
 
+/// 单个原始基函数（一个未收缩的高斯函数）
 #[derive(Debug, Clone)]
 pub struct Bas {
+    /// 所属原子的索引
     pub atm: usize,
+    /// 所属壳层的索引
     pub shl: usize,
+    /// 角动量量子数 l
     pub ang: usize,
+    /// 高斯指数
     pub alp: f64,
+    /// 收缩系数
     pub coe: f64,
     // pub nlm: (usize, usize, isize), //n,l,m 兼容真实原子轨道，先这么写，后面应该要搞成枚举类型
 }
@@ -345,27 +355,28 @@ impl Bas {
     /// - `alp`: 高斯指数
     /// - `coe`: 收缩系数
     pub fn new(atm: usize, shl: usize, ang: usize, alp: f64, coe: f64) -> Self {
-        Self {
-            atm,
-            shl,
-            ang,
-            alp,
-            coe,
-        }
+        Self { atm, shl, ang, alp, coe }
     }
 }
+/// 原始基函数集合
 #[derive(Debug, Clone)]
 pub struct Bass {
     bass: Vec<Bas>,
 }
 
+/// 分子基组，包含壳层定义以及惰性构建的原子轨道、原始基函数和重叠积分
 #[derive(Debug)]
 pub struct Basis {
-    pub shls: Shls, // [atm,shl,ang,form,alps,coes]
+    /// 壳层集合，每个壳层记录 [atm, shl, ang, form, alps, coes]
+    pub shls: Shls,
+    /// 基组名称（若已知）
     pub name: Option<String>,
+    /// 惰性构建的原子轨道集合（raw/sph/car 三种形式）
     pub atos: OnceLock<Atos>,
+    /// 惰性构建的原始基函数集合
     pub bass: OnceLock<Bass>,
-    pub smat: OnceLock<[Array2<f64>; 3]>, // 存储球谐和笛卡尔的重叠积分
+    /// 惰性计算的重叠积分矩阵，依次为 [raw, sph, car]
+    pub smat: OnceLock<[Array2<f64>; 3]>,
 }
 
 impl Basis {
@@ -378,13 +389,7 @@ impl Basis {
         let atos = OnceLock::new();
         let bass = OnceLock::new();
         let smat = OnceLock::new();
-        Basis {
-            shls,
-            name,
-            atos,
-            bass,
-            smat,
-        }
+        Basis { shls, name, atos, bass, smat }
     }
 
     /// 用新的壳层列表重新构建基组
@@ -605,16 +610,7 @@ impl fmt::Display for Basis {
             let shl = self.shls.get(i);
             let alps = &shl.alps;
             let coes = &shl.coes;
-            writeln!(
-                f,
-                "{:<5}{:<5}{:<5}{:<5}{:>10}({})",
-                i,
-                shl.atm,
-                shl.shl,
-                shl.ang,
-                shl.form,
-                alps.len()
-            )?;
+            writeln!(f, "{:<5}{:<5}{:<5}{:<5}{:>10}({})", i, shl.atm, shl.shl, shl.ang, shl.form, alps.len())?;
             for i in 0..alps.len() {
                 writeln!(f, "     {:>12.6E}  {:>12.6E}", alps[i], coes[i])?;
             }

@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+//! 分子活性（福井函数、自由价）计算。
 
 use ndarray::Array2;
 use std::collections::HashMap;
@@ -12,6 +13,7 @@ use crate::props::bondprop;
 ///
 /// 封装分子参考，提供福井函数和自由价相关的计算方法。
 pub struct Calculator<'m> {
+    /// 分子引用
     pub mole: &'m Mole,
 }
 
@@ -76,12 +78,7 @@ impl<'m> Calculator<'m> {
     /// # Returns
     /// 返回 `(dirs, vals)`，其中 `dirs` 是每个原子的 π 方向映射，
     /// `vals` 是每个原子 7 个值: `[e0, en, ep, f⁻, f⁺, f⁰, Δf]`。
-    pub fn fukui_pi_pocv(
-        &self,
-        mole_n: &Mole,
-        mole_p: &Mole,
-        ctype: &str,
-    ) -> Result<(HashMap<usize, Vec3>, Vec<[f64; 7]>), String> {
+    pub fn fukui_pi_pocv(&self, mole_n: &Mole, mole_p: &Mole, ctype: &str) -> Result<(HashMap<usize, Vec3>, Vec<[f64; 7]>), String> {
         let caler_0 = atomprop::charge::Calculator::new(self.mole);
         let caler_n = atomprop::charge::Calculator::new(&mole_n);
         let caler_p = atomprop::charge::Calculator::new(&mole_p);
@@ -105,12 +102,20 @@ impl<'m> Calculator<'m> {
         Ok((dirs, vals))
     }
 
-    pub fn fukui_pi_mocv(
-        &self,
-        mole_n: &Mole,
-        mole_p: &Mole,
-        ctype: &str,
-    ) -> Result<(HashMap<usize, Stm>, Vec<usize>, Vec<[f64; 7]>), String> {
+    /// 计算 π 轨道的福井函数及双描述符（MOÇV 方法）。
+    ///
+    /// 通过 π-MOÇV 方法直接把分子轨道改造为 π 子系统的轨道，再计算福井函数。
+    ///
+    /// # Parameters
+    /// - `mole_n` — 多一个电子的分子（阴离子）
+    /// - `mole_p` — 少一个电子的分子（阳离子）
+    /// - `ctype` — 电荷类型: `"mulliken"` | `"lowdin"` | `"hirshfeld"`
+    ///
+    /// # Returns
+    /// 返回 `(stms, atos, vals)`，其中 `stms` 是每个原子的局部坐标系映射，
+    /// `atos` 是参与 π 改造的原子轨道索引，`vals` 是每个原子 7 个值:
+    /// `[e0, en, ep, f⁻, f⁺, f⁰, Δf]`。
+    pub fn fukui_pi_mocv(&self, mole_n: &Mole, mole_p: &Mole, ctype: &str) -> Result<(HashMap<usize, Stm>, Vec<usize>, Vec<[f64; 7]>), String> {
         let caler_n = atomprop::charge::Calculator::new(&mole_n);
         let caler_p = atomprop::charge::Calculator::new(&mole_p);
         let caler_0 = atomprop::charge::Calculator::new(&self.mole);
@@ -143,14 +148,7 @@ impl<'m> Calculator<'m> {
     ///
     /// # Returns
     /// 7 个值: `[e0, en, ep, f⁻, f⁺, f⁰, Δf]`
-    pub fn fukui_dir(
-        &self,
-        atm: usize,
-        dir: &Vec3,
-        mole_n: &Mole,
-        mole_p: &Mole,
-        ctype: &str,
-    ) -> Result<[f64; 7], String> {
+    pub fn fukui_dir(&self, atm: usize, dir: &Vec3, mole_n: &Mole, mole_p: &Mole, ctype: &str) -> Result<[f64; 7], String> {
         let caler_0 = atomprop::charge::Calculator::new(self.mole);
         let caler_n = atomprop::charge::Calculator::new(&mole_n);
         let caler_p = atomprop::charge::Calculator::new(&mole_p);
@@ -232,14 +230,7 @@ impl<'m> Calculator<'m> {
     ///
     /// # Returns
     /// `(标准价, 各相邻原子在此方向的键级, 方向自由价)`
-    pub fn freev_dir(
-        &self,
-        atm: usize,
-        dir: &Vec3,
-        nebs: &Vec<usize>,
-        otype: &str,
-        mtype: &str,
-    ) -> Result<(f64, Vec<f64>, f64), String> {
+    pub fn freev_dir(&self, atm: usize, dir: &Vec3, nebs: &Vec<usize>, otype: &str, mtype: &str) -> Result<(f64, Vec<f64>, f64), String> {
         let crg = self.mole.atoms.crgs()[atm];
         let STAND = element_valence(crg as usize)[1];
         let caler = bondprop::order::Calculator::new(&self.mole);

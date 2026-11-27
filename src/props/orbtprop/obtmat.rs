@@ -12,8 +12,11 @@ use crate::props::orbtprop::mocv;
 
 /// 分子轨道系数矩阵操作计算器，支持 POCV、MOCV 和轨道定域化等
 pub struct Calculator<'m> {
+    /// 分子信息
     pub mole: &'m Mole,
+    /// 是否在投影中保留空轨道
     pub vobt: bool, // 是否包含空轨道
+    /// 参与计算的原子索引
     pub atms: &'m Vec<usize>,
 }
 

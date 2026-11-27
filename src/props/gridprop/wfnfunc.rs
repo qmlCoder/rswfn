@@ -5,8 +5,8 @@ use crate::base::Mole;
 use crate::datas::btrans::sym2lmn;
 use crate::datas::consts::BOHR;
 use crate::datas::{FACS, elems};
-use crate::props::gridprop::GridVals;
 use crate::maths;
+use crate::props::gridprop::GridVals;
 use std::f64::consts::PI;
 
 #[cached(size = 1024)]
@@ -50,7 +50,9 @@ pub fn stf(xyz: &[f64; 3], nuc: usize, Z: f64, nlm: &(usize, usize, isize)) -> f
 
 /// 波函数计算器，计算原子轨道和分子轨道在空间中的波函数值及其导数
 pub struct Calculator<'m> {
+    /// 分子信息，提供基组与原子坐标
     pub mole: &'m Mole,
+    /// 参与计算的原子索引
     pub atms: &'m Vec<usize>,
 }
 
@@ -241,13 +243,7 @@ pub fn gtf(
 
 /// 计算收缩基函数（原子轨道），即基函数的线性组合
 #[inline(always)]
-pub fn cgf(
-    xyz: &[f64; 3],
-    lmn: &[usize; 3],
-    alps: &Vec<f64>,
-    coes: &Vec<f64>,
-    level: usize,
-) -> (f64, [f64; 3], [[f64; 3]; 3]) {
+pub fn cgf(xyz: &[f64; 3], lmn: &[usize; 3], alps: &Vec<f64>, coes: &Vec<f64>, level: usize) -> (f64, [f64; 3], [[f64; 3]; 3]) {
     let mut wfn0 = 0.0;
     let mut wfn1 = [0.0; 3];
     let mut wfn2 = [[0.0; 3]; 3];

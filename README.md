@@ -100,7 +100,7 @@ build is the safe default). The Windows binary uses the static CRT: it is a
 single self-contained `.exe` with no `vcruntime140.dll` dependency.
 
 > **Note:** if no release is available yet — or if you prefer building from
-> source — use `cargo install rswfn` (version 0.2.0 is published on crates.io).
+> source — use `cargo install rswfn` (version 0.2.1 is published on crates.io).
 > Only Windows x86_64 and Linux x86_64/aarch64 have prebuilt binaries; Windows
 > ARM64 and macOS have none. See
 > [docs/install.md](https://github.com/qmlCoder/rswfn/blob/main/docs/install.md#5-离线安装与镜像)
@@ -112,20 +112,20 @@ uninstall, or install from a mirror):
 ```sh
 # Linux: arguments after `sh -s --` are passed to the installer
 base=https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.sh
-curl -fsSL "$base" | sh -s -- --version 0.2.0
+curl -fsSL "$base" | sh -s -- --version 0.2.1
 curl -fsSL "$base" | sh -s -- --dir "$HOME/bin"
 curl -fsSL "$base" | sh -s -- --target x86_64-unknown-linux-gnu
 curl -fsSL "$base" | sh -s -- --uninstall
-curl -fsSL "$base" | sh -s -- --version 0.2.0 --base-url /mnt/usb/rswfn-mirror
+curl -fsSL "$base" | sh -s -- --version 0.2.1 --base-url /mnt/usb/rswfn-mirror
 ```
 
 ```powershell
 # Windows: download the script first, then run it with options
 irm https://raw.githubusercontent.com/qmlCoder/rswfn/main/install.ps1 -OutFile install.ps1
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.2.0
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.2.1
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Dir "D:\tools\rswfn" -NoPath
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.2.0 -BaseUrl D:\rswfn-mirror
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.2.1 -BaseUrl D:\rswfn-mirror
 ```
 
 The environment variables `RSWFN_VERSION`, `RSWFN_INSTALL_DIR`,
@@ -157,7 +157,7 @@ macOS):
 cargo install rswfn
 ```
 
-This builds `rswfn` from source; crates.io currently publishes version 0.2.0.
+This builds `rswfn` from source; crates.io currently publishes version 0.2.1.
 
 ### As a library
 
@@ -178,16 +178,19 @@ rswfn atomprop charge hirshfeld C6H6.fch
 rswfn atomprop charge spin C6H6.fch
 
 # π-electron population (POCV / MOCV)
-rswfn atomprop pi-pop C6H6.fch --method pocv
+rswfn atomprop charge pi-pop C6H6.fch --method pocv
 
 # Fukui functions and dual descriptor (needs the N, N+1 and N-1 wavefunctions)
-rswfn atomprop fukui phenol.out phenol_N+1.out phenol_N-1.out
+rswfn atomprop activity fukui phenol.out phenol_N+1.out phenol_N-1.out
 
 # Mayer / Wiberg bond orders
 rswfn bondprop order mayer C6H6.fch
 
+# π bond orders (POCV / MOCV)
+rswfn bondprop order pi-order C6H6.fch --method pocv
+
 # σ/π/δ/φ decomposition of the bond order between atoms 1 and 2
-rswfn bondprop decom 1 2 C6H6.fch
+rswfn bondprop order decom 1 2 C6H6.fch
 
 # Bond energy decomposition (bond / rest / cross) between atoms 1 and 2
 # (closed-shell hybrid functional; reads the functional and basis from the log)
@@ -216,6 +219,9 @@ rswfn qmcal dft -i C6H6.fch -o C6H6_b3lyp.fch
 # Pick another exchange-correlation functional
 rswfn qmcal dft -i C6H6.fch --func pbe0 -o C6H6_pbe0.fch
 
+# DHMO (simple Hückel) from a .dmi local-coordinate file
+rswfn qmcal dhmo -i C6H6.dmi -o C6H6.dmo
+
 # Extract coordinates, convert formats, extract supporting information
 rswfn coord C6H6.fch coords.xyz
 rswfn trans C6H6.fch C6H6.gjf
@@ -225,6 +231,11 @@ rswfn si scan1.log scan2.log -o si.txt
 # (colour comes from CPK colours; `--style space` and `--style wire` also work)
 rswfn view C6H6.fch --size 100x40 --style ball --rotate 20,12
 rswfn view phenol.fch --style space --color always
+
+# Tree view of every subcommand (add --args to also list each command's
+# positional arguments and options)
+rswfn list
+rswfn list --args
 ```
 
 Run `rswfn --help`, or `rswfn <subcommand> --help`, for the full set of options.
@@ -308,7 +319,7 @@ BLYP、BP86、SVWN5 可选）。另外可以在终端里直接预览分子结构
 安装动态链接的 gnu 版本（性能略好，但同样要求 glibc ≥ 2.39）。Windows 产物使用静态
 CRT，是单个 `.exe`，不依赖 `vcruntime140.dll`。
 
-注意：最新版本 0.2.0 已发布到 crates.io，预编译二进制来自 GitHub Releases（首个
+注意：最新版本 0.2.1 已发布到 crates.io，预编译二进制来自 GitHub Releases（首个
 release 为 `v0.1.1`）。Windows 目前只提供 x86_64 产物（ARM64 暂不支持），默认安装到
 `%LOCALAPPDATA%\Programs\rswfn` 并写入用户 PATH，需重开终端生效（`-NoPath` 可跳过）。
 Linux 默认安装到 `~/.local/bin`，脚本不会修改 shell 配置文件，需要自行把该目录加入

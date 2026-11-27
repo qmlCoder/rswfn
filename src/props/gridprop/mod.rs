@@ -1,3 +1,5 @@
+//! 格点工具：一维/二维/三维格点、格点值容器，以及基于格点的电子密度、
+//! DFT 网格、拓扑分析和波函数计算。
 use ndarray::Array2;
 use rayon::prelude::*;
 use std::f64::{EPSILON, consts::PI};
@@ -5,24 +7,27 @@ use std::f64::{EPSILON, consts::PI};
 use crate::base::Vec3;
 use crate::maths::march;
 
+/// 电子密度与静电势等密度相关计算
 pub mod density;
+/// DFT 网格（原子/分子/片段格点及其权重）生成
 pub mod dftgrid;
+/// 拓扑分析（寻找分子中的临界点）
 pub mod topolog;
+/// 波函数计算（高斯型/收缩基函数与 Slater 型函数）
 pub mod wfnfunc;
 
 /// 一维线性格点
 pub struct LineGrid {
+    /// 格点形状，一维时即格点数量
     pub shape: [usize; 1],
+    /// 所有格点坐标 (Bohr)
     pub grids: Vec<[f64; 3]>,
 }
 
 impl LineGrid {
     /// 创建一个空的 LineGrid 实例
     pub fn new() -> LineGrid {
-        LineGrid {
-            shape: [0],
-            grids: vec![],
-        }
+        LineGrid { shape: [0], grids: vec![] }
     }
 
     /// 根据起点、终点和步长生成一维线性格点
@@ -49,27 +54,23 @@ impl LineGrid {
 
 /// 二维矩形格点
 pub struct RectGrid {
+    /// 格点形状，两个方向上的格点数量
     pub shape: [usize; 2],
+    /// 所有格点坐标 (Bohr)
     pub grids: Vec<[f64; 3]>,
 }
 
 impl RectGrid {
     /// 创建一个空的 RectGrid 实例
     pub fn new() -> Self {
-        RectGrid {
-            shape: [0, 0],
-            grids: vec![],
-        }
+        RectGrid { shape: [0, 0], grids: vec![] }
     }
 
     /// 根据中心点、法向量、方向向量、尺寸和步长生成平面矩形格点
     pub fn set_v1(&mut self, center: &Vec3, normal: &Vec3, vector: &Vec3, size: [f64; 2], step: [f64; 2]) {
         let vz = normal.normalize();
         let vx = vector.normalize();
-        let shape = [
-            (size[0] / step[0] + EPSILON).floor() as usize + 1,
-            (size[1] / step[1] + EPSILON).floor() as usize + 1,
-        ];
+        let shape = [(size[0] / step[0] + EPSILON).floor() as usize + 1, (size[1] / step[1] + EPSILON).floor() as usize + 1];
 
         let vy = vx.cross(&vz).normalize();
         let vx = vz.cross(&vy).normalize();
@@ -161,8 +162,11 @@ impl RectGrid {
 
 /// 三维立方体格点
 pub struct CubeGrid {
+    /// 三个方向上的格点数量
     pub shape: [usize; 3],
+    /// 起始格点坐标 (Bohr)
     pub start: [f64; 3],
+    /// 三个方向上的步长 (Bohr)
     pub steps: [f64; 3],
 }
 
@@ -212,8 +216,11 @@ impl CubeGrid {
 #[derive(Clone, Copy)]
 /// 格点上的标量、梯度和 Hessian 矩阵值
 pub struct GridVals {
+    /// 标量值（如电子密度）
     pub val0: f64,
+    /// 一阶导数（梯度），分量顺序为 x, y, z
     pub val1: [f64; 3],
+    /// 二阶导数（Hessian 矩阵），行、列顺序均为 x, y, z
     pub val2: [[f64; 3]; 3],
 }
 
@@ -223,6 +230,7 @@ impl GridVals {
         GridVals { val0, val1, val2 }
     }
 
+    /// 设置标量值、梯度和 Hessian 矩阵
     pub fn set(&mut self, val0: f64, val1: [f64; 3], val2: [[f64; 3]; 3]) {
         self.val0 = val0;
         self.val1 = val1;
@@ -248,6 +256,7 @@ impl GridVals {
         norm2
     }
 
+    /// 将 3×3 的 Hessian 矩阵按行展开为 9 个元素的一维数组
     pub fn val2s(&self) -> [f64; 9] {
         let [gx, gy, gz] = self.val2;
         [gx[0], gx[1], gx[2], gy[0], gy[1], gy[2], gz[0], gz[1], gz[2]]

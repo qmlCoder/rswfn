@@ -3,7 +3,7 @@
 //! 泛函的具体实现由 `use-rsxcs` 特性选择:
 //! - 启用: 使用外部 `rsxcs` crate (libxc 7.1.2 子集的 Rust 实现), 并可直接使用
 //!   其支持的全部泛函（按 libxc 名称或编号选择，见 [`XcFunc::External`]）;
-//! - 关闭: 使用内置的 `DFTxclib` 翻译（[`hand`]）。
+//! - 关闭: 使用内置的 `DFTxclib` 翻译（`hand`）。
 //!
 //! 两种后端通过本模块导出的统一接口（[`XcComponent`]、[`RksEval`]、[`UksEval`]、
 //! [`XcFunc`]、[`RsXcs`]、[`eval_rks`]、[`eval_uks`]）对外提供，上层代码不感知
@@ -31,13 +31,21 @@ pub use rsxcs::{eval_rks, eval_uks};
 /// [`eval_uks`] 接口求值，因此上层代码不感知后端差异。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum XcComponent {
+    /// Slater 交换（LDA）
     LdaX,
+    /// VWN5 相关（LDA）
     Vwn5,
+    /// VWN3 相关（LDA，B3LYP 使用）
     Vwn3,
+    /// Becke88 交换梯度修正（GGA）
     B88,
+    /// LYP 相关（GGA）
     Lyp,
+    /// Perdew86 相关梯度修正（GGA）
     P86,
+    /// PBE 交换（GGA）
     PbeX,
+    /// PBE 相关（GGA）
     PbeC,
 }
 

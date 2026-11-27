@@ -1,12 +1,13 @@
 #![allow(non_snake_case)]
+//! 原子电荷与电子布居分析。
 use std::collections::HashMap;
 
 use ndarray::Array2;
 use ndarray::{Array1, s};
 use rayon::prelude::*;
 
-use crate::props::atomprop;
 use crate::datas::rdens;
+use crate::props::atomprop;
 use crate::props::gridprop;
 use crate::rsint;
 
@@ -21,7 +22,9 @@ use crate::props::orbtprop::mocv::MocvDest;
 /// 提供多种原子电荷/电子布居分析方法，包括 Mulliken、Lowdin、Hirshfeld
 /// 以及 POÇV、MOÇV 等轨道改造方法。
 pub struct Calculator<'m> {
+    /// 分子引用
     pub mole: &'m Mole,
+    /// 全部分子的原子索引列表
     pub atms: &'m Vec<usize>,
 }
 
@@ -101,10 +104,7 @@ impl<'m> Calculator<'m> {
         let mut eles = vec![0.0; natm]; // 原子的电子数
         let (mole_grids, mole_weits) = gridClaer.mol_grids(75, 434);
         let ngrid = mole_grids.len();
-        let mole_dens: Vec<f64> = mole_grids
-            .par_iter()
-            .map(|grid| densCaler.mol_rho_dm(grid, 0).val0)
-            .collect();
+        let mole_dens: Vec<f64> = mole_grids.par_iter().map(|grid| densCaler.mol_rho_dm(grid, 0).val0).collect();
         let pro_mole_dens: Vec<f64> = mole_grids.par_iter().map(|grid| densCaler.pro_rho(grid)).collect();
         let mut pro_atom_dens = vec![0.0; ngrid];
         let mut atom_weits = vec![0.0; ngrid];
@@ -122,15 +122,7 @@ impl<'m> Calculator<'m> {
                     rdens::get_rad_dens_v1(nuc, dist)
                 })
                 .collect();
-            atom_weits = (0..ngrid)
-                .map(|g| {
-                    if pro_mole_dens[g] > 1e-12 {
-                        pro_atom_dens[g] / pro_mole_dens[g]
-                    } else {
-                        0.0
-                    }
-                })
-                .collect();
+            atom_weits = (0..ngrid).map(|g| if pro_mole_dens[g] > 1e-12 { pro_atom_dens[g] / pro_mole_dens[g] } else { 0.0 }).collect();
             for g in 0..ngrid {
                 eles[i] += mole_dens[g] * mole_weits[g] * atom_weits[g];
             }
@@ -187,13 +179,7 @@ impl<'m> Calculator<'m> {
     ///
     /// # Returns
     /// 每个原子的电子数
-    pub fn pocv(
-        &self,
-        dirs: &HashMap<usize, Vec3>,
-        keep_other_atm: bool,
-        keep_other_sym: bool,
-        ctype: &str,
-    ) -> Result<Vec<f64>, String> {
+    pub fn pocv(&self, dirs: &HashMap<usize, Vec3>, keep_other_atm: bool, keep_other_sym: bool, ctype: &str) -> Result<Vec<f64>, String> {
         let obt_caler = orbtprop::obtmat::Calculator::new(self.mole);
         let cmat_pocv = obt_caler.pocv(dirs, keep_other_atm, keep_other_sym)?;
 
@@ -280,6 +266,16 @@ impl<'m> Calculator<'m> {
         Ok((stms, atos, eles))
     }
 
+    /// 基于 MOÇV 的另一种 π 电子布居计算。
+    ///
+    /// 先分别得到全空间、纯 π 与（全空间 − π）的布居，再按
+    /// `π/（π+σ）` 的比例把总布居折算为 π 电子数。
+    ///
+    /// # Parameters
+    /// - `ctype` — 电荷类型: `"mulliken"` | `"lowdin"` | `"hirshfeld"`
+    ///
+    /// # Returns
+    /// `(stms, atos, eles)`，分别是局部坐标系映射、原子轨道索引和每个原子的 π 电子数
     pub fn pi_mocv_v2(&self, ctype: &str) -> Result<(HashMap<usize, Stm>, Vec<usize>, Vec<f64>), String> {
         let obt_caler = orbtprop::obtmat::Calculator::new(self.mole);
         let cmat = self.mole.coefs().get_cmat("sph", self.mole);
@@ -303,11 +299,7 @@ impl<'m> Calculator<'m> {
             let ele_pp = eles_pp[i];
             let ele_ss = eles_ss[i];
             let esum = ele_pp + ele_ss;
-            eles_pi[i] = if esum.abs() < f64::EPSILON {
-                0.0
-            } else {
-                ele_pp / esum * eles[i]
-            };
+            eles_pi[i] = if esum.abs() < f64::EPSILON { 0.0 } else { ele_pp / esum * eles[i] };
         }
 
         Ok((stms, atos, eles_pi))
@@ -390,14 +382,7 @@ fn qmat2eles_lowdin(qmat: &Array2<f64>, uplo: &Vec<[usize; 2]>) -> Vec<f64> {
 ///
 /// # Returns
 /// 每个原子的电子数
-pub fn hirshfeld(
-    atom_nucs: Vec<usize>,
-    atom_xyzs: Vec<[f64; 3]>,
-    mole_grids: &Vec<[f64; 3]>,
-    mole_weits: &Vec<f64>,
-    mole_dens: &Vec<f64>,
-    pro_mole_dens: &Vec<f64>,
-) -> Vec<f64> {
+pub fn hirshfeld(atom_nucs: Vec<usize>, atom_xyzs: Vec<[f64; 3]>, mole_grids: &Vec<[f64; 3]>, mole_weits: &Vec<f64>, mole_dens: &Vec<f64>, pro_mole_dens: &Vec<f64>) -> Vec<f64> {
     let natm = atom_nucs.len();
     let mut eles = vec![0.0; natm]; // 原子的电子数
     let ngrid = mole_grids.len();
@@ -417,15 +402,7 @@ pub fn hirshfeld(
                 rdens::get_rad_dens_v1(nuc, dist)
             })
             .collect();
-        atom_weits = (0..ngrid)
-            .map(|g| {
-                if pro_mole_dens[g] > 1e-12 {
-                    pro_atom_dens[g] / pro_mole_dens[g]
-                } else {
-                    0.0
-                }
-            })
-            .collect();
+        atom_weits = (0..ngrid).map(|g| if pro_mole_dens[g] > 1e-12 { pro_atom_dens[g] / pro_mole_dens[g] } else { 0.0 }).collect();
         for g in 0..ngrid {
             eles[i] += mole_dens[g] * mole_weits[g] * atom_weits[g];
         }

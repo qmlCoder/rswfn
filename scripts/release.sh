@@ -21,7 +21,7 @@
 #   sh scripts/release.sh --version 0.1.4
 #   sh scripts/release.sh --wsl Ubuntu-22.04 --wsl-target-dir /home/me/rswfn-target
 #
-# 产出的资产与 .github/workflows/release.yml 完全一致：
+# 产出的资产（安装脚本约定的文件名与目录结构）：
 #   rswfn-<ver>-x86_64-pc-windows-msvc.zip          （扁平结构）
 #   rswfn-<ver>-x86_64-unknown-linux-gnu.tar.gz     （含顶层目录）
 #   rswfn-<ver>-x86_64-unknown-linux-musl.tar.gz
@@ -158,7 +158,7 @@ if [ "$DO_BUILD" = 1 ]; then
     for t in $WIN_TARGETS; do
         [ "$HOST_OS" = windows ] || die "在非 Windows 主机上无法编译 $t"
         log "编译 $t（本机，静态 CRT）"
-        # 与 release.yml 一致：静态链接 CRT，产物不依赖 vcruntime140.dll
+        # 发布约定：静态链接 CRT，产物不依赖 vcruntime140.dll
         RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --locked --target "$t"
     done
 

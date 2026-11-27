@@ -6,6 +6,7 @@ use std::ops::Mul;
 use std::ops::MulAssign;
 use std::ops::Sub;
 
+/// 三维向量，用于原子坐标、方向向量等运算
 #[derive(Debug, Clone)]
 pub struct Vec3 {
     x: f64,
@@ -38,7 +39,7 @@ impl Vec3 {
         Vec3::new(x, y, z)
     }
 
-    /// 从 Vec<f64> 创建三维向量
+    /// 从 `Vec<f64>` 创建三维向量
     ///
     /// 会检查所有分量是否为非 NaN 值
     ///
@@ -57,7 +58,7 @@ impl Vec3 {
         [self.x, self.y, self.z]
     }
 
-    /// 将向量转换为 Vec<f64>
+    /// 将向量转换为 `Vec<f64>`
     pub fn into_vec(&self) -> Vec<f64> {
         vec![self.x, self.y, self.z]
     }

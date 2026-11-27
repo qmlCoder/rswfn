@@ -13,8 +13,11 @@ use std::sync::OnceLock;
 ///
 /// 读取自定义的dmi/dmo格式文件,包含原子轨道信息。
 pub struct DmoReader {
+    /// 文件路径
     pub path: String,
+    /// 文件行
     pub lines: Vec<String>,
+    /// 文件中各数据块的标记位置(行号)
     pub marks: HashMap<String, usize>,
     atms: OnceLock<(Vec<usize>, Vec<[f64; 3]>)>,
     dirs: OnceLock<Vec<(usize, usize, String, [f64; 3])>>,

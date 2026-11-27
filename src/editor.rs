@@ -4,6 +4,7 @@ use ndarray::Array2;
 
 /// 分子结构编辑器，提供键的旋转和伸缩等几何操作
 pub struct Editor<'m> {
+    /// 被编辑的分子（只读引用）
     pub mole: &'m Mole,
 }
 

@@ -215,15 +215,15 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Version 0.1.1 -BaseUrl f
 
 ```text
 oss://wmview/rswfn/
-├── latest.txt                  # 一行版本号，例如 0.2.0
+├── latest.txt                  # 一行版本号，例如 0.2.1
 ├── install.sh                  # 默认下载基址已指向本镜像
 ├── install.ps1
-└── v0.2.0/
+└── v0.2.1/
     ├── SHA256SUMS
-    ├── rswfn-0.2.0-aarch64-unknown-linux-gnu.tar.gz
-    ├── rswfn-0.2.0-x86_64-pc-windows-msvc.zip
-    ├── rswfn-0.2.0-x86_64-unknown-linux-gnu.tar.gz
-    └── rswfn-0.2.0-x86_64-unknown-linux-musl.tar.gz
+    ├── rswfn-0.2.1-aarch64-unknown-linux-gnu.tar.gz
+    ├── rswfn-0.2.1-x86_64-pc-windows-msvc.zip
+    ├── rswfn-0.2.1-x86_64-unknown-linux-gnu.tar.gz
+    └── rswfn-0.2.1-x86_64-unknown-linux-musl.tar.gz
 ```
 
 因此可以完全不依赖 GitHub，一行装最新版：
@@ -242,7 +242,7 @@ region。
 
 几点说明：
 
-- 仍可传参，比如 `... | sh -s -- --version 0.2.0 --dir ~/bin`：指定版本或自定义目录。
+- 仍可传参，比如 `... | sh -s -- --version 0.2.1 --dir ~/bin`：指定版本或自定义目录。
   注意 `--version` 可省，但 `latest.txt` 必须能取到；两者都没有时脚本会退回 GitHub 解析。
 - `install.sh` / `install.ps1` 是发布时由 `scripts/upload_oss.py` 从仓库里的同名
   文件生成的：只改写默认下载基址（和脚本内部的示例 URL），其余与仓库版本一致。
@@ -410,10 +410,9 @@ Windows 同理：先 `irm ... -OutFile install.ps1`，再用 `powershell -Execut
 
 ## 11. 维护者发布清单
 
-安装脚本依赖 GitHub Releases 上的资产与 `SHA256SUMS`。二进制现在在**本地**交叉编译：
+安装脚本依赖 GitHub Releases 上的资产与 `SHA256SUMS`。二进制在**本地**交叉编译：
 Windows 目标本机构建，3 个 Linux 目标在 WSL 里构建；`scripts/release.sh` 负责打包、
-上传阿里云 OSS 和创建 GitHub Release。`.github/workflows/release.yml` 现在只在手动
-触发时构建（兜底），不再随 tag 自动发布。
+上传阿里云 OSS 和创建 GitHub Release。仓库不使用 GitHub Actions，发布全部由本地脚本完成。
 
 1. **改版本号**：修改 `Cargo.toml` 的 `version`，并同步 `Cargo.lock`（跑一次
    `cargo check` 即可；脚本用 `--locked` 构建）。
@@ -437,7 +436,7 @@ Windows 目标本机构建，3 个 Linux 目标在 WSL 里构建；`scripts/rele
    - 本机编译 `x86_64-pc-windows-msvc`（静态 CRT）；
    - 交给 WSL 编译 `x86_64-unknown-linux-gnu`、`x86_64-unknown-linux-musl`、
      `aarch64-unknown-linux-gnu`；
-   - 打包出与 CI 完全一致的 4 个归档 + `SHA256SUMS`：
+   - 打包出 4 个归档 + `SHA256SUMS`（安装脚本约定的文件名）：
 
      ```text
      rswfn-<ver>-x86_64-pc-windows-msvc.zip
@@ -464,20 +463,17 @@ Windows 目标本机构建，3 个 Linux 目标在 WSL 里构建；`scripts/rele
    WSL 默认把 `CARGO_TARGET_DIR` 指到 `~/.cache/rswfn-target`（Linux 原生文件系统），
    在 `/mnt/e` 上直接编译会慢很多；要改就用 `--wsl-target-dir`。
 
-   GitHub Secrets（`OSS_*`）只在手动触发 `release.yml` 时才用到；本地发布读 `.env`。
-   想让 CI 也能传 OSS，就把 `.env` 同步过去：`gh secret set -f .env --repo qmlCoder/rswfn`。
+   本地发布从 `.env` 读 OSS 凭据（见 `.env.example`），不需要配置 GitHub Secrets。
 5. **单独重传某个已有版本**：不需要重新编译，也不需要打 tag：
 
    ```sh
    gh release download v0.1.3 --dir dist-oss --clobber
    python scripts/upload_oss.py v0.1.3 dist-oss
    ```
-
-   也可以在 Actions 里手动跑 `Mirror to OSS` workflow（填 tag，留空取 latest）。
 6. **在干净机器上验证两条一行命令**：准备一台 Linux 和一台 Windows（都不预装 Rust），
    分别运行第 2、3 节的一行命令，再确认 `rswfn --version` 输出预期版本。
 7. **（可选）同步 crates.io**：GitHub Release 与 crates.io 发布相互独立；如果希望
    `cargo install rswfn` 也能装到新版本，需要另外执行 `cargo publish`。
 
-注意：`.github/workflows/release.yml` 只在 Actions 页面手动触发时运行，且只构建并上传
-artifact（不创建 Release、不传 OSS），适合在本地工具链不可用时验证构建。
+注意：仓库不使用 GitHub Actions，没有云端 CI；提交前请在本地跑
+`cargo check --all-targets --locked`（Windows 与 WSL 各跑一次，覆盖两个平台的编译）。

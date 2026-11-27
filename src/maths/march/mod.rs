@@ -22,12 +22,23 @@ pub(crate) fn grid_index(i: usize, j: usize, k: usize, ny: usize, nz: usize) -> 
     (i * ny + j) * nz + k
 }
 
+/// 轴对齐长方体盒子（用最小角点 `p0` 与最大角点 `p1` 描述）
 pub struct Cube {
+    /// 最小角点坐标（bohr）
     p0: [f64; 3],
+    /// 最大角点坐标（bohr）
     p1: [f64; 3],
 }
 
 impl Cube {
+    /// 根据最小、最大角点创建盒子
+    ///
+    /// # Parameters
+    /// - `p0`: 最小角点坐标
+    /// - `p1`: 最大角点坐标
+    ///
+    /// # Returns
+    /// 新建的 `Cube` 实例
     pub fn new(p0: [f64; 3], p1: [f64; 3]) -> Self {
         let [x0, y0, z0] = p0;
         let [x1, y1, z1] = p1;
@@ -38,7 +49,15 @@ impl Cube {
         Self { p0: p0, p1: p1 }
     }
 
-    // 根据要求的数量计算步长，数量可以适当调整，三个方向的步长
+    /// 根据要求的格点总数估算三个方向的步长
+    ///
+    /// 格点数量会被适当向上取整，实际格点数可能略多于 `count`。
+    ///
+    /// # Parameters
+    /// - `count`: 期望的格点总数
+    ///
+    /// # Returns
+    /// 三个方向的步长 `[sx, sy, sz]`
     pub fn calc_step(&self, count: usize) -> [f64; 3] {
         let [x0, y0, z0] = self.p0;
         let [x1, y1, z1] = self.p1;
@@ -57,6 +76,10 @@ impl Cube {
         [sx, sy, sz]
     }
 
+    /// 计算盒子的体积
+    ///
+    /// # Returns
+    /// 体积（bohr³）
     pub fn volum(&self) -> f64 {
         let [x0, y0, z0] = self.p0;
         let [x1, y1, z1] = self.p1;
@@ -66,15 +89,31 @@ impl Cube {
         lx * ly * lz
     }
 
+    /// 获取最小角点
+    ///
+    /// # Returns
+    /// 最小角点对应的 `Vec3`
     pub fn p0(&self) -> Vec3 {
         Vec3::new(self.p0[0], self.p0[1], self.p0[2])
     }
 
+    /// 获取最大角点
+    ///
+    /// # Returns
+    /// 最大角点对应的 `Vec3`
     pub fn p1(&self) -> Vec3 {
         Vec3::new(self.p1[0], self.p1[1], self.p1[2])
     }
 
-    // 将一个大的cube提取出几个小的cube
+    /// 将一个大的盒子按约 `count` 个格点切分成小格点
+    ///
+    /// 与 [`Self::calc_step`] 不同，格点覆盖整个盒子且包含两个端点。
+    ///
+    /// # Parameters
+    /// - `count`: 期望的格点总数
+    ///
+    /// # Returns
+    /// `(三方向格点数, 格点坐标列表, 单个格点体积)`
     pub fn grids_v1(&self, count: usize) -> ([usize; 3], Vec<[f64; 3]>, f64) {
         let [x0, y0, z0] = self.p0;
         let [x1, y1, z1] = self.p1;
@@ -105,6 +144,13 @@ impl Cube {
         (shape, grids, volum)
     }
 
+    /// 按给定步长将盒子切分为格点
+    ///
+    /// # Parameters
+    /// - `step`: 格点步长
+    ///
+    /// # Returns
+    /// `(三方向格点数, 格点坐标列表)`
     pub fn grids_v2(&self, step: f64) -> ([usize; 3], Vec<[f64; 3]>) {
         let [x0, y0, z0] = self.p0;
         let [x1, y1, z1] = self.p1;
@@ -136,13 +182,19 @@ impl Cube {
     }
 }
 
-// 将正的和负的融合到一块
-pub fn value_merge(
-    pverts: &Vec<[f64; 3]>,
-    pfaces: &Vec<[usize; 3]>,
-    nverts: &Vec<[f64; 3]>,
-    nfaces: &Vec<[usize; 3]>,
-) -> (Vec<[f64; 3]>, Vec<[usize; 3]>, Vec<isize>) {
+/// 将正（`+isov`）与负（`-isov`）两层等值面合并为一个网格
+///
+/// 负层顶点索引会整体平移，以接在正层顶点之后。
+///
+/// # Parameters
+/// - `pverts`: 正层顶点表
+/// - `pfaces`: 正层面表
+/// - `nverts`: 负层顶点表
+/// - `nfaces`: 负层面表
+///
+/// # Returns
+/// 返回 `(顶点表, 面表, 类型表)`，类型 `+1` 为正层、`-1` 为负层
+pub fn value_merge(pverts: &Vec<[f64; 3]>, pfaces: &Vec<[usize; 3]>, nverts: &Vec<[f64; 3]>, nfaces: &Vec<[usize; 3]>) -> (Vec<[f64; 3]>, Vec<[usize; 3]>, Vec<isize>) {
     let pverts_count = pverts.len();
     let nverts_count = nverts.len();
     let pfaces_count = pfaces.len();
@@ -162,17 +214,21 @@ pub fn value_merge(
     faces.extend_from_slice(pfaces);
 
     for i in 0..nfaces_count {
-        let new_face = [
-            nfaces[i][0] + pverts_count as usize,
-            nfaces[i][1] + pverts_count as usize,
-            nfaces[i][2] + pverts_count as usize,
-        ];
+        let new_face = [nfaces[i][0] + pverts_count as usize, nfaces[i][1] + pverts_count as usize, nfaces[i][2] + pverts_count as usize];
         faces.push(new_face);
     }
 
     (verts, faces, types)
 }
 
+/// 将三维顶点、面表拉平为一维数组，便于导出
+///
+/// # Parameters
+/// - `verts`: 顶点表
+/// - `faces`: 面表
+///
+/// # Returns
+/// `(拉平的顶点坐标, 拉平的面索引)`
 pub fn flatten(
     // 将三维的点拉成一维的
     verts: &Vec<[f64; 3]>,
@@ -199,7 +255,15 @@ pub fn flatten(
     (verts_flat, faces_flat)
 }
 
-// 将格点数据转为体素数据
+/// 将格点数据转为体素数据
+///
+/// # Parameters
+/// - `shape`: 三个方向的格点数 `[nx, ny, nz]`
+/// - `grids`: 格点坐标列表
+/// - `values`: 每个格点处的标量值
+///
+/// # Returns
+/// 形如 `(nx, ny, nz, 4)` 的数组，最后一维依次为 `x, y, z, value`
 pub fn grids2voxel(shape: &[usize; 3], grids: &Vec<[f64; 3]>, values: &Vec<f64>) -> Array4<f64> {
     let [nx, ny, nz] = *shape;
     let mut voxel = Array4::zeros((nx as usize, ny as usize, nz as usize, 4));
@@ -220,7 +284,14 @@ pub fn grids2voxel(shape: &[usize; 3], grids: &Vec<[f64; 3]>, values: &Vec<f64>)
     voxel
 }
 
-// 将体素数据转为正方形数据
+/// 将体素数据分割成跨越等值面 `±isov` 的小盒子
+///
+/// # Parameters
+/// - `voxel`: 体素数据（最后一维为 `x, y, z, value`）
+/// - `isov`: 等值面阈值
+///
+/// # Returns
+/// 包含 `isov` 或 `-isov` 等值面的盒子列表
 pub fn voxel2cubes(voxel: &Array4<f64>, isov: f64) -> Vec<Cube> {
     let shape = voxel.shape();
     let nx = shape[0];
@@ -283,16 +354,7 @@ fn get_around_v2(voxel: &Array4<f64>, i: usize, j: usize, k: usize) -> Vec<f64> 
     vals
 }
 
-static DIDX: [[usize; 3]; 8] = [
-    [0, 0, 0],
-    [1, 0, 0],
-    [1, 1, 0],
-    [0, 1, 0],
-    [0, 0, 1],
-    [1, 0, 1],
-    [1, 1, 1],
-    [0, 1, 1],
-];
+static DIDX: [[usize; 3]; 8] = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]];
 // 获取一个点周围的点
 fn get_around_v1(voxel: &Array4<f64>, i: usize, j: usize, k: usize) -> ([[f64; 3]; 8], [f64; 8]) {
     let mut xyzs = [[0.0; 3]; 8];
@@ -310,22 +372,17 @@ fn get_around_v1(voxel: &Array4<f64>, i: usize, j: usize, k: usize) -> ([[f64; 3
     (xyzs, vals)
 }
 
-static EDGES: [[isize; 2]; 12] = [
-    [0, 1],
-    [1, 2],
-    [2, 3],
-    [0, 3],
-    [1, 5],
-    [2, 6],
-    [3, 7],
-    [0, 4],
-    [4, 5],
-    [5, 6],
-    [6, 7],
-    [7, 4],
-];
+static EDGES: [[isize; 2]; 12] = [[0, 1], [1, 2], [2, 3], [0, 3], [1, 5], [2, 6], [3, 7], [0, 4], [4, 5], [5, 6], [6, 7], [7, 4]];
 
-// 将顶点合并
+/// 合并位置相近的顶点（距离小于 `1e-4` 视为同一点）
+///
+/// 合并后的新顶点取参与合并顶点的平均位置，同时按每三个连续索引生成面表。
+///
+/// # Parameters
+/// - `old_verts`: 原始顶点表
+///
+/// # Returns
+/// `(合并后的顶点表, 面表)`
 pub fn merge_verts(old_verts: &Vec<[f64; 3]>) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
     let mut verts: Vec<[f64; 3]> = Vec::new();
     let mut faces: Vec<[usize; 3]> = Vec::new();
@@ -408,13 +465,7 @@ fn snap_point<F: Fn(&[f64; 3]) -> f64>(mut p: [f64; 3], func: &F, target: f64, h
 /// 把一组顶点投影到真实等值面，消除"卡在网格棱上"造成的锯齿，使网格更平滑。
 ///
 /// `types` 为 `+1` 的顶点投到 `isov`，`-1` 的投到 `-isov`；`h` 为差分步长（一般取 `step * 0.5`）。
-pub fn snap_to_isosurface<F: Fn(&[f64; 3]) -> f64>(
-    verts: &mut [[f64; 3]],
-    types: &[isize],
-    isov: f64,
-    func: &F,
-    h: f64,
-) {
+pub fn snap_to_isosurface<F: Fn(&[f64; 3]) -> f64>(verts: &mut [[f64; 3]], types: &[isize], isov: f64, func: &F, h: f64) {
     for (i, p) in verts.iter_mut().enumerate() {
         let target = isov * types[i] as f64;
         *p = snap_point(*p, func, target, h);
@@ -447,24 +498,14 @@ fn laplacian_step(pos: &mut Vec<[f64; 3]>, adj: &[Vec<usize>], lambda: f64) {
 /// 再沿梯度重新投影回真实等值面 `f = ±isov`，从而在保持形状的前提下让表面变平滑。
 ///
 /// `iterations` 越大越平滑（一般 5~10 即可）。返回新的顶点表（仍是每 3 个一组）。
-pub fn smooth_isosurface<F: Fn(&[f64; 3]) -> f64>(
-    verts: &[[f64; 3]],
-    types: &[isize],
-    isov: f64,
-    func: &F,
-    iterations: usize,
-) -> Vec<[f64; 3]> {
+pub fn smooth_isosurface<F: Fn(&[f64; 3]) -> f64>(verts: &[[f64; 3]], types: &[isize], isov: f64, func: &F, iterations: usize) -> Vec<[f64; 3]> {
     // 1. 按位置焊接
     let mut map: HashMap<(i64, i64, i64), usize> = HashMap::new();
     let mut wpos: Vec<[f64; 3]> = Vec::new();
     let mut wtype: Vec<isize> = Vec::new();
     let mut sidx: Vec<usize> = Vec::with_capacity(verts.len());
     for (v, t) in verts.iter().zip(types) {
-        let key = (
-            (v[0] * 1e5).round() as i64,
-            (v[1] * 1e5).round() as i64,
-            (v[2] * 1e5).round() as i64,
-        );
+        let key = ((v[0] * 1e5).round() as i64, (v[1] * 1e5).round() as i64, (v[2] * 1e5).round() as i64);
         let id = match map.get(&key) {
             Some(&i) => i,
             None => {
@@ -513,15 +554,7 @@ pub fn smooth_isosurface<F: Fn(&[f64; 3]) -> f64>(
 /// 在给定的大立方体区域内采样标量场，并用 `extract` 指定的方法提取等值面（正、负两层）。
 ///
 /// `extract` 的签名：`(shape, grids, values, isov) -> (verts, types)`。
-pub fn extract_region<F, E>(
-    func: &F,
-    cube: Cube,
-    isov: f64,
-    step: f64,
-    xyzs: Option<&Vec<[f64; 3]>>,
-    limit: Option<f64>,
-    extract: E,
-) -> (Vec<[f64; 3]>, Vec<isize>)
+pub fn extract_region<F, E>(func: &F, cube: Cube, isov: f64, step: f64, xyzs: Option<&Vec<[f64; 3]>>, limit: Option<f64>, extract: E) -> (Vec<[f64; 3]>, Vec<isize>)
 where
     F: Fn(&[f64; 3]) -> f64 + Sync + Send,
     E: Fn(&[usize; 3], &Vec<[f64; 3]>, &Vec<f64>, f64) -> (Vec<[f64; 3]>, Vec<isize>) + Sync + Send,

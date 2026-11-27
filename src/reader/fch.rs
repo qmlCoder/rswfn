@@ -45,20 +45,19 @@ pub struct Counts {
 impl Counts {
     /// 创建空的Counts实例
     pub fn blank() -> Self {
-        Counts {
-            nato: 0,
-            nobt: 0,
-            nela: 0,
-            nelb: 0,
-        }
+        Counts { nato: 0, nobt: 0, nela: 0, nelb: 0 }
     }
 }
 
 /// 高斯检查点文件(.fch/.fchk)读取器
 pub struct FchReader {
+    /// 文件路径
     pub path: String,
+    /// 各数据块的标题行行号
     pub marks: HashMap<String, usize>,
+    /// 原子轨道与电子计数信息
     pub count: Counts,
+    /// 文件行
     pub lines: Vec<String>,
 }
 
@@ -140,10 +139,7 @@ impl FchReader {
                 let num_line = count / 6 + if count % 6 == 0 { 0 } else { 1 };
                 for l in mark_num + 1..mark_num + num_line + 1 {
                     let line = self.lines.get(l as usize).expect("获取行失败");
-                    let vals = line
-                        .split_whitespace()
-                        .map(|s| s.parse().expect("转换失败"))
-                        .collect::<Vec<isize>>();
+                    let vals = line.split_whitespace().map(|s| s.parse().expect("转换失败")).collect::<Vec<isize>>();
                     i_vals.extend(vals);
                 }
             }
@@ -151,10 +147,7 @@ impl FchReader {
                 let num_line = count / 5 + if count % 5 == 0 { 0 } else { 1 };
                 for l in mark_num + 1..mark_num + num_line + 1 {
                     let line = self.lines.get(l as usize).expect("获取行失败");
-                    let vals = line
-                        .split_whitespace()
-                        .map(|s| s.parse().expect("转换失败"))
-                        .collect::<Vec<f64>>();
+                    let vals = line.split_whitespace().map(|s| s.parse().expect("转换失败")).collect::<Vec<f64>>();
                     r_vals.extend(vals);
                 }
             }
@@ -168,6 +161,7 @@ impl FchReader {
         self.parse_block("Atomic numbers").I
     }
 
+    /// 读取原子核电荷(无ECP时为原子序数)
     pub fn read_crgs(&self) -> Vec<f64> {
         self.parse_block("Nuclear charges").R
     }
@@ -218,18 +212,12 @@ impl FchReader {
         let nobt = self.count.nobt;
         let coefs_a = self.parse_block("Alpha MO coefficients").R;
         assert_eq!(coefs_a.len(), nato * nobt);
-        let cmat_a = Array2::from_shape_vec((nobt as usize, nato as usize), coefs_a)
-            .expect("数组转矩阵失败")
-            .t()
-            .to_owned();
+        let cmat_a = Array2::from_shape_vec((nobt as usize, nato as usize), coefs_a).expect("数组转矩阵失败").t().to_owned();
         let open = self.marks.contains_key("Beta MO coefficients");
         let cmat = if open {
             let coefs_b = self.parse_block("Beta MO coefficients").R;
 
-            let cmat_b = Array2::from_shape_vec((nobt as usize, nato as usize), coefs_b)
-                .expect("数组转矩阵失败")
-                .t()
-                .to_owned();
+            let cmat_b = Array2::from_shape_vec((nobt as usize, nato as usize), coefs_b).expect("数组转矩阵失败").t().to_owned();
             let cmat = concatenate(Axis(1), &[cmat_a.view(), cmat_b.view()]).expect("矩阵拼接失败");
             cmat
         } else {

@@ -55,20 +55,30 @@ pub fn mocv_atos(mole: &Mole, dest: &MocvDest) -> Vec<usize> {
     atos
 }
 
+/// 键级分解的类型
 pub enum OrderDType {
-    SI, // σ键级
-    PI, // π键级
-    DE, // δ键级
-    PH, // φ键级
+    /// σ 键级
+    SI,
+    /// π 键级
+    PI,
+    /// δ 键级
+    DE,
+    /// φ 键级
+    PH,
 }
 
+/// MOCV 投影的计算目标
 pub enum MocvDest {
-    PiProperty,             // pi电子性质
-    OrderDecom(OrderDType), // 键级分解
-    RoundOrder,             // 环轴键级
+    /// π 电子性质
+    PiProperty,
+    /// 键级分解
+    OrderDecom(OrderDType),
+    /// 环轴键级
+    RoundOrder,
 }
 
 impl MocvDest {
+    /// 由字符串解析计算目标，无法识别时返回 `None`
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "PiProperty" => Some(MocvDest::PiProperty),
@@ -609,6 +619,7 @@ pub fn tmat_g(L: &Array2<f64>) -> Array2<f64> {
     MG
 }
 
+/// 根据一组角量子数 (l, m, n) 构造归一化矩阵，元素为两侧归一化系数之比
 pub fn get_nmat(lmns: &Vec<[usize; 3]>) -> Array2<f64> {
     let nval = |lmn: &[usize; 3]| {
         let [l, m, n] = lmn;

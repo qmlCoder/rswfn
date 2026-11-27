@@ -1,3 +1,9 @@
+use crate::base::Mole;
+use crate::datas::consts::BOHR;
+use crate::datas::elems;
+use crate::writer::Writer;
+use std::fmt::Write as FmtWrite;
+
 /// Multiwfn 波函数文件(.mwfn)写入器
 ///
 /// 输出与 [`crate::reader::MfnReader`]（以及 Multiwfn 的 mwfn 约定）兼容的文本，
@@ -7,12 +13,6 @@
 ///
 /// 注意：`Nbasis` 为基函数数，`Nindbasis` 为分子轨道数；二者可以不同
 /// （本项目的 π-only 波函数即 `Nindbasis < Nbasis`）。
-use crate::base::Mole;
-use crate::datas::consts::BOHR;
-use crate::datas::elems;
-use crate::writer::Writer;
-use std::fmt::Write as FmtWrite;
-
 pub struct MfnWriter {
     /// 待写出的分子（需含基组与系数）
     pub mole: Mole,

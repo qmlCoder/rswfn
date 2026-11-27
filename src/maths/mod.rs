@@ -1,4 +1,7 @@
+//! 数学工具：矩阵运算、向量几何、优化与等值面提取。
+
 pub mod march;
+/// 矩阵相关运算
 pub mod matrix;
 pub mod optim;
 

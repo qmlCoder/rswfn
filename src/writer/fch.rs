@@ -1,4 +1,3 @@
-/// Fch格式文件(.fch)写入器
 use ndarray::{Array2, s};
 use std::collections::HashMap;
 
@@ -7,6 +6,7 @@ use crate::datas::elems;
 use crate::utils;
 use crate::writer::Writer;
 
+/// Fch格式文件(.fch)写入器
 pub struct FchWriter {
     /// 分子电荷
     pub charge: isize,
@@ -231,11 +231,7 @@ fn basis_info(mole: &Mole) -> (usize, Vec<isize>, Vec<usize>, Vec<usize>, Vec<f6
 
 /// 壳层类型：l >= 2 的球谐壳层用负数表示（与 Gaussian 约定一致）
 fn shl_type(shl: &Shl) -> isize {
-    if shl.form == "sph" && shl.ang > 1 {
-        -(shl.ang as isize)
-    } else {
-        shl.ang as isize
-    }
+    if shl.form == "sph" && shl.ang > 1 { -(shl.ang as isize) } else { shl.ang as isize }
 }
 
 impl Writer for FchWriter {

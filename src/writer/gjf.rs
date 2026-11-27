@@ -3,6 +3,7 @@ use crate::{datas::temps, writer::Writer};
 
 /// Gjf格式文件(.gjf)写入器
 pub struct GjfWriter {
+    /// 检查点文件名（chk）
     pub chk: String, // 检查点文件名
     /// 作业类型
     pub job: String, // 作业类型
@@ -10,7 +11,9 @@ pub struct GjfWriter {
     pub charge: isize, // 电荷和自旋
     /// 自旋多重度
     pub multip: usize, // 自旋多重度
+    /// 原子符号列表
     pub syms: Vec<String>,
+    /// 原子坐标（bohr）
     pub xyzs: Vec<[f64; 3]>,
 }
 
@@ -33,13 +36,7 @@ impl GjfWriter {
         for i in 0..self.syms.len() {
             let sym = &self.syms[i];
             let [x, y, z] = &self.xyzs[i];
-            geom += &format!(
-                "{:>3}           {:>14.8}{:>14.8}{:>14.8}\n",
-                sym,
-                x / BOHR,
-                y / BOHR,
-                z / BOHR
-            );
+            geom += &format!("{:>3}           {:>14.8}{:>14.8}{:>14.8}\n", sym, x / BOHR, y / BOHR, z / BOHR);
         }
         temps::GJF
             .to_string()

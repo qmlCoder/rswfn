@@ -7,6 +7,7 @@ use ndarray::Array2;
 
 /// 布居分析计算器
 pub struct Calculator<'m> {
+    /// 分子信息
     pub mole: &'m Mole,
 }
 

@@ -2,16 +2,18 @@ use std::collections::HashMap;
 
 use ndarray::Axis;
 
-use crate::props::atomprop;
 use crate::base::Mole;
 use crate::maths;
+use crate::props::atomprop;
 use crate::props::orbtprop;
 use crate::props::orbtprop::mocv::MocvDest;
 use crate::rsint;
 use crate::utils;
 /// 分子轨道属性计算器，计算轨道电子数和相关性质
 pub struct Calculator<'m> {
+    /// 分子信息
     pub mole: &'m Mole,
+    /// 参与计算的原子索引
     pub atms: &'m Vec<usize>,
 }
 
@@ -50,6 +52,7 @@ impl<'m> Calculator<'m> {
         eles
     }
 
+    /// 使用 MOCV 方法计算每个分子轨道的 π 电子数
     pub fn pi_eles_mocv(&self) -> Vec<f64> {
         let mut caler = orbtprop::obtmat::Calculator::new(self.mole);
         caler.vobt = true;

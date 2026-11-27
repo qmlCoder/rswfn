@@ -57,6 +57,13 @@ pub(crate) fn ext_of(path: &Path) -> Option<String> {
     path.extension().map(|ext| ext.to_string_lossy().to_ascii_lowercase())
 }
 
+/// 把路径转成绝对路径字符串，错误信息里带上字段名（输入文件 / 输出文件）
+pub(crate) fn absolute_str(path: &Path, what: &str) -> ServiceResult<String> {
+    let abs = absolute(path).map_err(|err| format!("无法解析{what}路径 {}: {err}", path.display()))?;
+    let text = abs.to_str().ok_or_else(|| format!("{what}路径不是有效的 UTF-8: {}", abs.display()))?;
+    Ok(text.to_string())
+}
+
 /// 检查分子是否含基组与轨道系数，避免计算器内部 panic。
 pub(crate) fn require_coefs(mole: &Mole) -> ServiceResult<()> {
     if mole.basis.is_none() {

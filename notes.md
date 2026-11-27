@@ -1,5 +1,29 @@
 # 变更记录
 
+## 2026-11-27 发布 v0.2.1
+
+- 版本 0.2.0 → 0.2.1（`Cargo.toml`、`Cargo.lock`；README 与 `docs/install.md`
+  里「已发布 / 最新版本」和示例命令同步为 0.2.1）。
+- 本批发布包含此前未发布的改动：库文档注释补全（`missing_docs` 归零）、移除
+  GitHub Actions workflows、球谐 5D/7F 基组的 KS 格点求值、TUI 运行层与 F3 结果弹窗
+  改版、`list` 命令与 README 命令同步。
+- 流程：`sh scripts/release.sh`（Windows 本机 + WSL 交叉编译，打 tag `v0.2.1`，
+  上传 GitHub Release 与阿里云 OSS），随后 `cargo publish`。
+
+## 2026-11-27 补全库文档注释（`cargo doc` 无缺失文档）
+
+- 为公开 API 补充中文文档注释：模块、结构体及其字段、枚举及变体、常量、静态表、
+  函数/方法（含 `# Parameters` / `# Returns`），覆盖 `base`、`datas`、`reader`、
+  `writer`、`props`、`qmcal`、`rsbse`、`rsxcs`、`maths`、`editor` 及 `lib.rs`。
+  以 `RUSTDOCFLAGS="-W missing_docs" cargo doc` 校验，缺失文档由 343 项降为 0。
+- 修复文档告警：`Vec<f64>` 等未闭合 HTML 标签、裸 URL、指向私有项的坏链接。
+  给 `pub mod` 加外层 `///` 会让该模块文件内 `//!` 的文档链接在父作用域解析（如
+  `Reader`/`XcFunc`/`mc` 变为无法解析），故 `reader`、`rsxcs`、`maths::{march, optim}`
+  只保留文件内 `//!` 说明模块，未再加外层 `///`，坏链接随之消除。
+- `build.rs` 为生成的 `BASIS_SETS` 静态表补一行文档注释。
+- 遗留：`src/rsbse/mod.rs` 中 `use-rsbase` 特性未在 `Cargo.toml` 声明，
+  `cargo doc` 仍报 6 处 `unexpected cfg` 告警（与文档无关，未改动）。
+
 ## 2026-11-26 F3 改为独立结果弹窗（含历次全部结果）
 
 - 新增 `Snapshot { label, cli, time, text }` 与 `App.history: Vec<Snapshot>`：
@@ -565,3 +589,33 @@
   `Esc` 仍只关闭或返回。新增 `esc_in_menu_does_not_quit` 测试。
 - 工作树 `E:\code\rswfn-viewer` 里的 `demo/`（PNG 截图 + `render.py`）没有并入主仓库；
   README/notes 未引用这些图片。
+
+## 2026-11-27 移除 GitHub Actions workflows
+
+- 删除 `.github/workflows/` 下的 4 个 workflow（`ci.yml`、`install-smoke.yml`、`release.yml`、
+  `mirror-oss.yml`）以及空的 `.github/` 目录。起因是 CI 每次 push 失败都会给触发者发邮件，
+  而发布早已改为本地脚本 `scripts/release.sh`（本机 + WSL 交叉编译），云端构建不再必要。
+- 代价：不再有云端编译检查、安装脚本自测、Release 后的安装冒烟验证。提交前请在本地跑
+  `cargo check --all-targets --locked`，必要时在 Windows 与 WSL 各跑一次。
+- 文档/注释同步：`docs/install.md` §11 去掉 `release.yml`、`Actions`、`gh secret` 相关说法；
+  `scripts/release.sh`、`scripts/build-wsl.sh` 的注释不再引用 `release.yml`。
+- 需要恢复时：`git checkout <commit> -- .github/workflows`。
+
+## 2026-11-27 球谐（5D/7F）基组支持 KS 格点求值
+
+- 之前 `qmcal/ks.rs::ato_wfn_form` 对球谐壳层直接调用 `Ato::lmn()`，而 `sym2lmn`
+  只收录笛卡尔符号，遇到 `"D 0"` 等会 panic（`未知角动量分量`）。现在 l >= 2 的
+  球谐壳层先按笛卡尔分量求值，再用 `btrans::car2sph_tmat` 组合成球谐分量，
+  与 `RsInt::mat1e_sph` 的变换（`S_sph = Tᵀ S_car T`）一致；s/p 仍直接求值。
+- 同一构造函数里的 `ao_r`（原子轨道有效半径）之前对球谐 `Ato` 调用 `coes_norm()`，
+  也会触发同一个 panic；现在改用该壳层笛卡尔分量的最大有效半径作为上界。
+- 影响：`bondprop.energy`、`moleprop.energy` 的 π 分解、`qmcal::ks::{RKS, UKS}`
+  等所有需要 DFT 格点数值积分的功能，现在可以直接读 Gaussian 默认的 5D/7F 日志，
+  不必再在路由里写 `6d 10f`；积分层与系数转换（`Coefs::from_raw`/`into_raw`）
+  本来就已经支持球谐。
+- 测试：`tests/qmcalc.rs::test_spherical_basis_ks_grid` 把 6D 的 C2H4 基组统一成
+  球谐形式，校验格点上的 χ 与 ∂χ 等于 `car2sph_tmat · χ_car`，并检查 `S_sph`
+  的 d 块对角为 1（基函数归一化，修复前会 panic）。
+- 实机验证：`rswfn bondprop energy 1 2 sp5d_s4.log`（6-311++G(d,p)，5D/7F，144 个
+  基函数）现在能正常输出键能分解；对应的 6D 日志结果相差在纯/笛卡尔 d 的
+  预期范围内。

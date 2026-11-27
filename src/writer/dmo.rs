@@ -1,19 +1,26 @@
-/// Dmo/Dmi格式文件写入器
 use crate::datas::consts::BOHR;
 use crate::writer::Writer;
 use ndarray::Array2;
 use std::fs::File;
 use std::io::prelude::*;
+/// Dmo/Dmi格式文件写入器
 pub struct DmoWriter {
+    /// 原子符号列表
     pub syms: Vec<String>,
+    /// 原子坐标（bohr）
     pub xyzs: Vec<[f64; 3]>,
+    /// 原子轨道列表，每个元素为 `(原子索引, 壳层索引, 轨道符号, 轨道方向向量)`
     pub atos: Vec<(usize, usize, String, [f64; 3])>,
+    /// 键连矩阵（原子轨道 × 原子轨道）
     pub BM: Array2<f64>,
+    /// 轨道系数矩阵（原子轨道 × 分子轨道）
     pub CM: Array2<f64>,
+    /// 各分子轨道的能量
     pub es: Vec<f64>,
 }
 
 impl DmoWriter {
+    /// 创建一个内容为空的写入器
     pub fn blank() -> Self {
         Self {
             syms: vec![],
@@ -24,6 +31,10 @@ impl DmoWriter {
             es: vec![],
         }
     }
+    /// 将数据保存到文件
+    ///
+    /// # Parameters
+    /// - `path`: 目标文件路径
     pub fn save(&self, path: &str) {
         let mut file = File::create(path).expect("创建文件失败");
         let natm = self.syms.len();

@@ -1,12 +1,14 @@
 #![allow(non_snake_case)]
+//! 片段（原子集合）间静电相互作用能计算。
 
 use crate::base::Mole;
 
-use crate::props::gridprop::{density, dftgrid};
 use crate::maths;
+use crate::props::gridprop::{density, dftgrid};
 
 /// 碎片间静电相互作用能计算器
 pub struct Calculator<'m> {
+    /// 分子引用
     pub mole: &'m Mole,
 }
 

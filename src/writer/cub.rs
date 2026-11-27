@@ -13,6 +13,7 @@ use std::io::prelude::*;
 
 /// Cub格式文件(.cub)写入器
 pub struct CubWriter {
+    /// 标题（写入文件第一行）
     pub title: String, // 标题
     /// 原子符号列表
     pub syms: Vec<String>,
@@ -26,7 +27,7 @@ pub struct CubWriter {
     pub size: [usize; 3],
     /// 三个方向格点步长
     pub step: [f64; 3],
-    /// 数值: [轨道,格点]
+    /// 数值: `[轨道, 格点]`
     pub vals: Vec<Vec<f64>>,
 }
 
@@ -66,12 +67,7 @@ impl CubWriter {
             let sym = &self.syms[i];
             let atm = elems::sym2atm(sym);
             let [x, y, z] = self.xyzs[i];
-            write!(
-                file,
-                "{:>5}{:>12.6}{:>12.6}{:>12.6}{:>12.6}\n",
-                atm, atm as f64, x, y, z
-            )
-            .unwrap();
+            write!(file, "{:>5}{:>12.6}{:>12.6}{:>12.6}{:>12.6}\n", atm, atm as f64, x, y, z).unwrap();
         }
     }
 

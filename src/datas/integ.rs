@@ -1,6 +1,7 @@
 use ndarray::Array2;
 use std::sync::LazyLock;
 
+/// 高斯-埃尔米特求积的节点（第 i 行对应 i+1 阶 Hermite 多项式的根，共 1–10 阶）
 #[rustfmt::skip]
 pub static RHM: LazyLock<Array2<f64>> = LazyLock::new(|| {
     let mut rhm = Array2::zeros((10, 10));
@@ -62,6 +63,7 @@ pub static RHM: LazyLock<Array2<f64>> = LazyLock::new(|| {
     rhm
 });
 
+/// 高斯-埃尔米特求积的权重（与 `RHM` 中各阶节点一一对应）
 #[rustfmt::skip]
 pub static WHM: LazyLock<Array2<f64>> = LazyLock::new(|| {
     let mut whm = Array2::zeros((10, 10));

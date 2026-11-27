@@ -10,12 +10,18 @@ use crate::datas::elems;
 use crate::{datas, maths, utils};
 
 // 原子局部坐标系，局部坐标系的每一列是一个基向量，从全局坐标系到局部坐标系的变换方式为 R_l = LT @ R_g
+/// 原子局部坐标系，由三个右手正交单位基向量组成
 #[derive(Debug, Clone)]
 pub struct Stm {
+    /// 局部 x 方向的单位基向量
     pub ex: [f64; 3],
+    /// 局部 y 方向的单位基向量
     pub ey: [f64; 3],
+    /// 局部 z 方向的单位基向量
     pub ez: [f64; 3],
-    pub mat: Array2<f64>, // 局部坐标系的矩阵，每一列是一个单位基向量
+    /// 局部坐标系矩阵，每一列是一个单位基向量
+    pub mat: Array2<f64>,
+    /// 是否为未设置（占位）的坐标系，`true` 表示仍为默认的单位矩阵
     pub non: bool,
 }
 
@@ -163,14 +169,22 @@ impl fmt::Display for Stm {
     }
 }
 
+/// 单个原子的基本信息
 #[derive(Debug, Clone)]
 pub struct Atom {
-    pub idx: usize,    // 原子在分子中的索引
-    pub nuc: usize,    // 原子核电荷数
-    pub crg: f64,      // 有效核电荷数，赝势基组需要
-    pub xyz: [f64; 3], // 原子坐标
-    pub rad: f64,      // 原子半径
-    pub sym: String,   // 原子符号
+    /// 原子在分子中的索引
+    pub idx: usize,
+    /// 原子核电荷数（原子序数）
+    pub nuc: usize,
+    /// 有效核电荷数，赝势基组需要
+    pub crg: f64,
+    /// 原子坐标 [x, y, z]，原子单位（Bohr）
+    pub xyz: [f64; 3],
+    /// 原子半径，原子单位（Bohr）
+    pub rad: f64,
+    /// 原子符号（如 "C"、"H"）
+    pub sym: String,
+    /// 原子局部坐标系（未设置时为 `None`）
     pub stm: Option<Stm>,
 }
 
@@ -215,12 +229,17 @@ impl Atom {
     }
 }
 
+/// 分子的原子结构集合（原子列表、距离矩阵、成键关系等）
 #[derive(Debug)]
 pub struct Atoms {
+    /// 原子列表
     pub atoms: Vec<Atom>,
-    pub dists: Array2<f64>,                  // 距离矩阵
-    pub neles: [usize; 2],                   // α电子数和β电子数
-    pub bonds: Mutex<Vec<[usize; 2]>>,       // 键列表
+    /// 距离矩阵，元素 (i, j) 为原子 i 与原子 j 之间的距离
+    pub dists: Array2<f64>,
+    /// α 电子数和 β 电子数
+    pub neles: [usize; 2],
+    /// 成键列表，每个元素为 [原子 i, 原子 j]（0 基索引）
+    pub bonds: Mutex<Vec<[usize; 2]>>,
     nebs: Mutex<HashMap<usize, Vec<usize>>>, // 每个原子的相邻原子
     angs: Mutex<HashMap<[usize; 3], f64>>,   // 键角
     vecs: Mutex<HashMap<[usize; 2], Vec3>>,

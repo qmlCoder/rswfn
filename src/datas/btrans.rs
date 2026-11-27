@@ -6,6 +6,7 @@ use crate::maths;
 // 数据来源于卢天博客 http://sobereva.com/97
 
 // const D00:f64=
+/// 球谐 d 函数到笛卡尔 d 函数的变换矩阵（6×5）
 #[rustfmt::skip]
 pub static DMAT: LazyLock<Array2<f64>> = LazyLock::new(|| {
     let mut dmat = Array2::<f64>::zeros((6,5));
@@ -20,6 +21,7 @@ pub static DMAT: LazyLock<Array2<f64>> = LazyLock::new(|| {
     dmat
 });
 
+/// 球谐 f 函数到笛卡尔 f 函数的变换矩阵（10×7）
 #[rustfmt::skip]
 pub static FMAT: LazyLock<Array2<f64>> = LazyLock::new(|| {
     let mut fmat = Array2::<f64>::zeros((10,7));
@@ -42,6 +44,7 @@ pub static FMAT: LazyLock<Array2<f64>> = LazyLock::new(|| {
     fmat
 });
 
+/// 球谐 g 函数到笛卡尔 g 函数的变换矩阵（15×9）
 #[rustfmt::skip]
 pub static GMAT: LazyLock<Array2<f64>> = LazyLock::new(|| {
     let mut gmat = Array2::<f64>::zeros((15, 9));
@@ -78,6 +81,7 @@ pub static GMAT: LazyLock<Array2<f64>> = LazyLock::new(|| {
     gmat
 });
 
+/// 球谐 h 函数到笛卡尔 h 函数的变换矩阵（21×11）
 #[rustfmt::skip]
 pub static HMAT: LazyLock<Array2<f64>> = LazyLock::new(|| {
     let mut hmat = Array2::<f64>::zeros((21, 11));
@@ -132,6 +136,15 @@ pub static HMAT: LazyLock<Array2<f64>> = LazyLock::new(|| {
     hmat
 });
 
+/// 球谐 d 到笛卡尔 d 变换矩阵的转置（5×6）
+static DMAT_T: LazyLock<Array2<f64>> = LazyLock::new(|| DMAT.t().to_owned());
+/// 球谐 f 到笛卡尔 f 变换矩阵的转置（7×10）
+static FMAT_T: LazyLock<Array2<f64>> = LazyLock::new(|| FMAT.t().to_owned());
+/// 球谐 g 到笛卡尔 g 变换矩阵的转置（9×15）
+static GMAT_T: LazyLock<Array2<f64>> = LazyLock::new(|| GMAT.t().to_owned());
+/// 球谐 h 到笛卡尔 h 变换矩阵的转置（11×21）
+static HMAT_T: LazyLock<Array2<f64>> = LazyLock::new(|| HMAT.t().to_owned());
+
 /// 根据角动量获取球谐到笛卡尔的变换矩阵
 pub fn sph2car_tmat(ang: usize) -> Array2<f64> {
     match ang {
@@ -159,12 +172,7 @@ pub fn sph2car_tmat(ang: usize) -> Array2<f64> {
 /// - 只发生扩张（`sph -> car`，可能夹杂不变壳层）：返回嵌入矩阵的转置 `F^T`
 ///   （`sph -> car` 即 `U`）；
 /// - 同时出现收缩和扩张：回退到逐壳层处理。
-pub fn get_fmat(
-    from_smat: &Array2<f64>,
-    from_forms: &Vec<&str>,
-    into_forms: &Vec<&str>,
-    angs: &Vec<usize>,
-) -> Array2<f64> {
+pub fn get_fmat(from_smat: &Array2<f64>, from_forms: &Vec<&str>, into_forms: &Vec<&str>, angs: &Vec<usize>) -> Array2<f64> {
     assert_eq!(from_forms.len(), into_forms.len());
     assert_eq!(from_forms.len(), angs.len());
 
@@ -203,9 +211,7 @@ pub fn get_fmat(
             panic!("未知的轨道形式: {} -> {}", from_form, into_form);
         };
 
-        fmat_embed
-            .slice_mut(s![i_from..i_from + nf, i_into..i_into + ni])
-            .assign(&block);
+        fmat_embed.slice_mut(s![i_from..i_from + nf, i_into..i_into + ni]).assign(&block);
         i_from += nf;
         i_into += ni;
     }
@@ -246,18 +252,38 @@ pub fn get_fmat(
             panic!("未知的轨道形式: {} -> {}", from_form, into_form);
         };
 
-        fmat.slice_mut(s![i_into..i_into + ni, i_from..i_from + nf])
-            .assign(&block);
+        fmat.slice_mut(s![i_into..i_into + ni, i_from..i_from + nf]).assign(&block);
         i_from += nf;
         i_into += ni;
     }
     fmat
 }
 
-// 这个函数不能作用于分子轨道系数，能作用于重叠积分
+/// 根据角动量获取笛卡尔到球谐的变换矩阵（即 `sph2car_tmat` 的转置）
+///
+/// # Parameters
+/// - `ang`: 角动量量子数（0-5 分别对应 s、p、d、f、g、h）
+///
+/// # Returns
+/// 对应的笛卡尔到球谐变换矩阵
+///
+/// 注意：该函数不能作用于分子轨道系数，只能作用于重叠积分等对称矩阵
 pub fn car2sph_tmat(ang: usize) -> Array2<f64> {
     let tmat = sph2car_tmat(ang);
     tmat.t().to_owned()
+}
+
+/// 获取笛卡尔到球谐变换矩阵的静态引用（l >= 2）
+///
+/// 与 `car2sph_tmat` 数值相同，但不做克隆，供格点求值等热循环使用。
+pub fn car2sph_tmat_ref(ang: usize) -> &'static Array2<f64> {
+    match ang {
+        2 => &DMAT_T,
+        3 => &FMAT_T,
+        4 => &GMAT_T,
+        5 => &HMAT_T,
+        _ => panic!("非法角动量:{}", ang),
+    }
 }
 
 /// 根据角动量获取笛卡尔到球谐的变换矩阵
@@ -292,12 +318,17 @@ pub fn car2sph_fmat(smat_car: &Array2<f64>, angs: &Vec<usize>) -> Array2<f64> {
     fmat
 }
 
+/// s 壳层（混合类型）的轨道符号
 pub const MIX_S_SYMS: [&str; 1] = ["S"];
+/// s 壳层（混合类型）的角动量分量 (l, m, n)
 pub const MIX_S_LMNS: [[usize; 3]; 1] = [[0, 0, 0]];
 
+/// p 壳层（混合类型）的轨道符号
 pub const MIX_P_SYMS: [&str; 3] = ["PX", "PY", "PZ"];
+/// p 壳层（混合类型）的角动量分量 (l, m, n)
 pub const MIX_P_LMNS: [[usize; 3]; 3] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
+/// 笛卡尔 d 壳层的轨道符号（XX、YY、ZZ、XY、XZ、YZ）
 pub const CAR_D_SYMS: [&str; 6] = [
     "XX", // [2,0,0]
     "YY", // [0,2,0]
@@ -307,8 +338,10 @@ pub const CAR_D_SYMS: [&str; 6] = [
     "YZ", // [0,1,1]
 ];
 
+/// 笛卡尔 d 壳层的角动量分量 (l, m, n)
 pub const CAR_D_LMNS: [[usize; 3]; 6] = [[2, 0, 0], [0, 2, 0], [0, 0, 2], [1, 1, 0], [1, 0, 1], [0, 1, 1]];
 
+/// 笛卡尔 f 壳层的轨道符号（共 10 个）
 pub const CAR_F_SYMS: [&str; 10] = [
     "XXX", // [3,0,0] 0
     "YYY", // [0,3,0] 1
@@ -322,19 +355,10 @@ pub const CAR_F_SYMS: [&str; 10] = [
     "XYZ", // [1,1,1] 9
 ];
 
-pub const CAR_F_LMNS: [[usize; 3]; 10] = [
-    [3, 0, 0],
-    [0, 3, 0],
-    [0, 0, 3],
-    [1, 2, 0],
-    [2, 1, 0],
-    [2, 0, 1],
-    [1, 0, 2],
-    [0, 1, 2],
-    [0, 2, 1],
-    [1, 1, 1],
-];
+/// 笛卡尔 f 壳层的角动量分量 (l, m, n)
+pub const CAR_F_LMNS: [[usize; 3]; 10] = [[3, 0, 0], [0, 3, 0], [0, 0, 3], [1, 2, 0], [2, 1, 0], [2, 0, 1], [1, 0, 2], [0, 1, 2], [0, 2, 1], [1, 1, 1]];
 
+/// 笛卡尔 g 壳层的轨道符号（共 15 个）
 pub const CAR_G_SYMS: [&str; 15] = [
     "ZZZZ", // [0,0,4]
     "YZZZ", // [0,1,3]
@@ -353,6 +377,7 @@ pub const CAR_G_SYMS: [&str; 15] = [
     "XXXX", // [4,0,0]
 ];
 
+/// 笛卡尔 g 壳层的角动量分量 (l, m, n)
 pub const CAR_G_LMNS: [[usize; 3]; 15] = [
     [0, 0, 4],
     [0, 1, 3],
@@ -371,6 +396,7 @@ pub const CAR_G_LMNS: [[usize; 3]; 15] = [
     [4, 0, 0],
 ];
 
+/// 笛卡尔 h 壳层的轨道符号（共 21 个）
 pub const CAR_H_SYMS: [&str; 21] = [
     "ZZZZZ", // [0,0,5]
     "YZZZZ", // [0,1,4]
@@ -395,6 +421,7 @@ pub const CAR_H_SYMS: [&str; 21] = [
     "XXXXX", // [5,0,0]
 ];
 
+/// 笛卡尔 h 壳层的角动量分量 (l, m, n)
 pub const CAR_H_LMNS: [[usize; 3]; 21] = [
     [0, 0, 5],
     [0, 1, 4],
@@ -419,6 +446,7 @@ pub const CAR_H_LMNS: [[usize; 3]; 21] = [
     [5, 0, 0],
 ];
 
+/// 球谐 d 壳层的轨道符号（D 0、D+1、D-1、D+2、D-2）
 pub const SPH_D_SYMS: [&str; 5] = [
     "D 0", // z^2
     "D+1", // xz
@@ -426,6 +454,7 @@ pub const SPH_D_SYMS: [&str; 5] = [
     "D+2", // x^2-y^2
     "D-2", // xy
 ];
+/// 球谐 f 壳层的轨道符号（F 0、F±1、F±2、F±3）
 #[rustfmt::skip]
 pub const SPH_F_SYMS:[&str; 7]=[
     "F 0", // z^3
@@ -436,45 +465,32 @@ pub const SPH_F_SYMS:[&str; 7]=[
     "F+3", // x(x^2-3y^2)
     "F-3", // y(3x^2-y^2)
 ];
+/// 球谐 g 壳层的轨道符号（G 0、G±1、G±2、G±3、G±4）
 #[rustfmt::skip]
 pub const SPH_G_SYMS:[&str; 9]=["G 0","G+1","G-1","G+2","G-2","G+3","G-3","G+4","G-4"];
+/// 球谐 h 壳层的轨道符号（H 0、H±1…H±5）
 #[rustfmt::skip]
 pub const SPH_H_SYMS:[&str;11]=["H 0","H+1","H-1","H+2","H-2","H+3","H-3","H+4","H-4","H+5","H-5"];
 
-pub static LMNS: LazyLock<Vec<[usize; 3]>> = LazyLock::new(|| {
-    [
-        &MIX_S_LMNS[..],
-        &MIX_P_LMNS[..],
-        &CAR_D_LMNS[..],
-        &CAR_F_LMNS[..],
-        &CAR_G_LMNS[..],
-        &CAR_H_LMNS[..],
-    ]
-    .concat()
-});
+/// 所有壳层角动量分量按 s、p、d、f、g、h 顺序拼接而成的查找表
+pub static LMNS: LazyLock<Vec<[usize; 3]>> = LazyLock::new(|| [&MIX_S_LMNS[..], &MIX_P_LMNS[..], &CAR_D_LMNS[..], &CAR_F_LMNS[..], &CAR_G_LMNS[..], &CAR_H_LMNS[..]].concat());
 
-pub static SYMS: LazyLock<Vec<&str>> = LazyLock::new(|| {
-    [
-        &MIX_S_SYMS[..],
-        &MIX_P_SYMS[..],
-        &CAR_D_SYMS[..],
-        &CAR_F_SYMS[..],
-        &CAR_G_SYMS[..],
-        &CAR_H_SYMS[..],
-    ]
-    .concat()
-});
+/// 所有壳层轨道符号按 s、p、d、f、g、h 顺序拼接而成的查找表
+pub static SYMS: LazyLock<Vec<&str>> = LazyLock::new(|| [&MIX_S_SYMS[..], &MIX_P_SYMS[..], &CAR_D_SYMS[..], &CAR_F_SYMS[..], &CAR_G_SYMS[..], &CAR_H_SYMS[..]].concat());
 
+/// 获取混合类型（s、p）壳层的轨道符号列表
 #[cached]
 pub fn get_mix_syms() -> Vec<&'static str> {
     [&MIX_S_SYMS[..], &MIX_P_SYMS[..]].concat()
 }
 
+/// 获取笛卡尔类型（d、f、g、h）壳层的轨道符号列表
 #[cached]
 pub fn get_car_syms() -> Vec<&'static str> {
     [&CAR_D_SYMS[..], &CAR_F_SYMS[..], &CAR_G_SYMS[..], &CAR_H_SYMS[..]].concat()
 }
 
+/// 获取球谐类型（d、f、g、h）壳层的轨道符号列表
 #[cached]
 pub fn get_sph_syms() -> Vec<&'static str> {
     [&SPH_D_SYMS[..], &SPH_F_SYMS[..], &SPH_G_SYMS[..], &SPH_H_SYMS[..]].concat()

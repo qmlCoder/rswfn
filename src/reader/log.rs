@@ -152,10 +152,7 @@ impl LogReader {
     }
 
     /// 读取系数矩阵
-    pub fn _read_coefs(
-        &self,
-        spin: &str,
-    ) -> Result<(Vec<usize>, Vec<usize>, Vec<String>, Vec<f64>, Vec<String>, Array2<f64>), String> {
+    pub fn _read_coefs(&self, spin: &str) -> Result<(Vec<usize>, Vec<usize>, Vec<String>, Vec<f64>, Vec<String>, Array2<f64>), String> {
         let mark = self.marks.get(spin).unwrap();
         let job = self.read_job();
         if !job.contains("pop=full") {
@@ -307,8 +304,7 @@ impl LogReader {
     /// # 参数
     /// - `irow`: 可选,指定起始行号,为None时自动查找
     pub fn read_geome(&self, irow: Option<usize>) -> (Vec<usize>, Vec<[f64; 3]>) {
-        let reg =
-            Regex::new(r" +\d+ +(\d+) +\d +(-?\d+.\d{6}) +(-?\d+.\d{6}) +(-?\d+.\d{6})").expect("正则表达式构建失败");
+        let reg = Regex::new(r" +\d+ +(\d+) +\d +(-?\d+.\d{6}) +(-?\d+.\d{6}) +(-?\d+.\d{6})").expect("正则表达式构建失败");
         let mut atms = Vec::new();
         let mut xyzs = Vec::new();
         let irow = match irow {
@@ -382,16 +378,10 @@ impl LogReader {
                 if line.contains(mark) {
                     yes = true;
                     if i < 4 {
-                        let val: f64 = line[45..58]
-                            .trim()
-                            .parse()
-                            .expect(format!("解析失败: {}", &line[45..58]).as_ref());
+                        let val: f64 = line[45..58].trim().parse().expect(format!("解析失败: {}", &line[45..58]).as_ref());
                         engs[i] = val;
                     } else {
-                        let val = line[45..65]
-                            .trim()
-                            .parse()
-                            .expect(format!("解析失败: {}", &line[45..65]).as_ref());
+                        let val = line[45..65].trim().parse().expect(format!("解析失败: {}", &line[45..65]).as_ref());
                         engs[i] = val;
                     }
                 }
@@ -410,9 +400,7 @@ impl LogReader {
         for line in self.lines.iter() {
             if line.contains("Frequencies --") {
                 let vals: Vec<&str> = line[15..].trim().split_whitespace().collect();
-                let vals = vals
-                    .iter()
-                    .map(|val| val.parse::<f64>().expect(format!("解析失败: {}", val).as_ref()));
+                let vals = vals.iter().map(|val| val.parse::<f64>().expect(format!("解析失败: {}", val).as_ref()));
                 freqs.extend(vals);
             }
         }
@@ -438,13 +426,7 @@ impl LogReader {
                 let nums = line[loc..]
                     .trim()
                     .split_whitespace()
-                    .map(|s| {
-                        s.replace("D", "E").parse::<f64>().expect(&format!(
-                            "解析失败:{},{}",
-                            row,
-                            line[loc..].to_string()
-                        ))
-                    })
+                    .map(|s| s.replace("D", "E").parse::<f64>().expect(&format!("解析失败:{},{}", row, line[loc..].to_string())))
                     .collect::<Vec<f64>>();
                 for (k, num) in nums.iter().enumerate() {
                     let irow = (nato - nrow) as usize + j;
@@ -539,26 +521,10 @@ impl LogReader {
         let mut vibrs = vec![vec![]; ncol];
         for ib in 0..nblock {
             let start = irow + ib * sblock;
-            let freql: Vec<f64> = self.lines[start + 2][15..]
-                .trim()
-                .split_whitespace()
-                .map(|v| v.parse().unwrap())
-                .collect();
-            let redml: Vec<f64> = self.lines[start + 3][15..]
-                .trim()
-                .split_whitespace()
-                .map(|v| v.parse().unwrap())
-                .collect();
-            let frccl: Vec<f64> = self.lines[start + 4][15..]
-                .trim()
-                .split_whitespace()
-                .map(|v| v.parse().unwrap())
-                .collect();
-            let irinl: Vec<f64> = self.lines[start + 5][15..]
-                .trim()
-                .split_whitespace()
-                .map(|v| v.parse().unwrap())
-                .collect();
+            let freql: Vec<f64> = self.lines[start + 2][15..].trim().split_whitespace().map(|v| v.parse().unwrap()).collect();
+            let redml: Vec<f64> = self.lines[start + 3][15..].trim().split_whitespace().map(|v| v.parse().unwrap()).collect();
+            let frccl: Vec<f64> = self.lines[start + 4][15..].trim().split_whitespace().map(|v| v.parse().unwrap()).collect();
+            let irinl: Vec<f64> = self.lines[start + 5][15..].trim().split_whitespace().map(|v| v.parse().unwrap()).collect();
             freqs.extend(freql);
             redms.extend(redml);
             frccs.extend(frccl);
@@ -587,6 +553,10 @@ impl LogReader {
         Some(vibrations)
     }
 
+    /// 读取核独立化学位移(NICS)数据
+    ///
+    /// # Returns
+    /// 每个原子的`Nics`记录列表;若文件中不存在NICS数据则返回`None`。
     pub fn read_nics(&self) -> Option<Vec<Nics>> {
         let irow = match self.marks.get("nics") {
             Some(&i) => i + 1,
@@ -638,7 +608,10 @@ impl LogReader {
         Some(nics)
     }
 
-    // 读取计算是否正常结束
+    /// 判断计算是否正常结束
+    ///
+    /// # Returns
+    /// 文件末行包含`Normal termination`时为`true`,否则为`false`。
     pub fn read_normalend(&self) -> bool {
         let nline = self.lines.len();
         let line = &self.lines[nline - 1];
@@ -735,10 +708,7 @@ pub fn read_basis(lines: &[String]) -> Option<Vec<(usize, usize, usize, f64, f64
         } else if s2.is_match(&line) {
             let caps = s2.captures(&line).expect("cap error");
             let shl_sym: String = caps[1].to_string();
-            angs = shl_sym
-                .chars()
-                .map(|s| *ang_map.get(&s).expect("未知角动量符号"))
-                .collect();
+            angs = shl_sym.chars().map(|s| *ang_map.get(&s).expect("未知角动量符号")).collect();
             shl += 1;
         } else if s3.is_match(&line) {
             let caps = s3.captures(&line).expect("cap error");
