@@ -191,6 +191,20 @@ fi
 
 mkdir -p "$DIST"
 
+# dist 里可能残留其他版本的归档（例如上次发布没清掉的旧产物）。发布流程按 dist/*
+# 生成 SHA256SUMS 并全量上传，留着旧文件会让新版本的 Release / OSS 目录混入旧版本
+# 资产，校验和也会把旧文件算进去，所以这里只保留本次版本的归档。
+for f in "$DIST"/rswfn-*.zip "$DIST"/rswfn-*.tar.gz; do
+    [ -e "$f" ] || continue
+    case "$(basename "$f")" in
+        "rswfn-$VER-"*) ;;
+        *)
+            log "清理非 $VER 的旧产物 $(basename "$f")"
+            rm -f "$f"
+            ;;
+    esac
+done
+
 for t in $WIN_TARGETS; do
     [ "$HOST_OS" = windows ] || continue
     bin="target/$t/release/rswfn.exe"

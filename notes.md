@@ -9,6 +9,9 @@
   改版、`list` 命令与 README 命令同步。
 - 流程：`sh scripts/release.sh`（Windows 本机 + WSL 交叉编译，打 tag `v0.2.1`，
   上传 GitHub Release 与阿里云 OSS），随后 `cargo publish`。
+- 修复 `dist/` 跨版本残留：首次上传时旧的 `rswfn-0.2.0-*` 归档还在 `dist/` 里，
+  脚本按 `dist/*` 生成 `SHA256SUMS` 并全量上传，导致 v0.2.1 的 Release / OSS 目录
+  混入 0.2.0 资产。现在 `release.sh` 打包前会删掉文件名不是 `rswfn-$VER-` 的旧归档。
 
 ## 2026-11-27 补全库文档注释（`cargo doc` 无缺失文档）
 
