@@ -1045,6 +1045,24 @@ struct ViewerState {
     depth: viewer::Depth,
 }
 
+/// 四个面板，同一时刻只有一个处于激活状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Panel {
+    Files,
+    Menu,
+    Params,
+    Result,
+}
+
+/// 激活面板的边框颜色：用黄色，避开文件夹/分组用的青色
+fn panel_border(active: bool) -> Style {
+    if active {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    }
+}
+
 /// 一次计算结果的快照：F3 弹窗按时间顺序保存全部结果
 #[derive(Debug, Clone)]
 struct Snapshot {
@@ -1365,6 +1383,21 @@ impl App {
             KeyCode::Char('2') => state.view.angles(pi, 0.0),
             KeyCode::Char('3') => state.view.angles(0.0, pi),
             _ => {}
+        }
+    }
+
+    fn active_panel(&self) -> Panel {
+        match self.mode {
+            Mode::Welcome => {
+                if self.focus == Focus::Files {
+                    Panel::Files
+                } else {
+                    Panel::Menu
+                }
+            }
+            // 参数区提交后焦点直接交给结果区
+            Mode::Form => Panel::Params,
+            Mode::Running | Mode::Result => Panel::Result,
         }
     }
 
@@ -1920,7 +1953,7 @@ impl App {
 
     fn draw_files(&mut self, frame: &mut Frame, area: Rect) {
         let items = self.files.items(self.current_file.as_deref());
-        let border = if self.focus == Focus::Files { Style::default().fg(Color::Cyan) } else { Style::default() };
+        let border = panel_border(self.active_panel() == Panel::Files);
         let title = format!(" 文件 · {} ", self.files.dir_title());
         let list = List::new(items)
             .block(Block::new().borders(Borders::ALL).border_style(border).title(title))
@@ -1939,7 +1972,7 @@ impl App {
             let style = if row.is_group { Style::default().fg(Color::Cyan) } else { Style::default() };
             items.push(ListItem::new(Line::from(Span::styled(format!("{indent}{marker}{}", node_label(row.node)), style))));
         }
-        let border = if self.focus == Focus::Tree { Style::default().fg(Color::Cyan) } else { Style::default() };
+        let border = panel_border(self.active_panel() == Panel::Menu);
         let list = List::new(items)
             .block(Block::new().borders(Borders::ALL).border_style(border).title(" 分析菜单 "))
             .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White).add_modifier(Modifier::BOLD))
@@ -1970,14 +2003,14 @@ impl App {
         let field_rows = self.form.as_ref().map(|form| form.fields.len()).unwrap_or(0) as u16;
         let param_height = (field_rows + 1).clamp(2, 8);
         let chunks = Layout::vertical([Constraint::Length(param_height), Constraint::Length(1), Constraint::Min(3)]).split(area);
-        let param_focus = self.mode == Mode::Form;
-        self.draw_params(frame, chunks[0], param_focus);
+        let active = self.active_panel();
+        self.draw_params(frame, chunks[0], active == Panel::Params);
         let rule = "─".repeat(chunks[1].width as usize);
         frame.render_widget(Paragraph::new(Line::from(Span::styled(rule, Style::default().fg(Color::DarkGray)))), chunks[1]);
         if self.mode == Mode::Running {
             self.draw_running_plain(frame, chunks[2]);
         } else {
-            self.draw_result_plain(frame, chunks[2], !param_focus);
+            self.draw_result_plain(frame, chunks[2], active == Panel::Result);
         }
     }
 
@@ -1985,7 +2018,7 @@ impl App {
     fn draw_params(&self, frame: &mut Frame, area: Rect, focused: bool) {
         let Some(form) = &self.form else { return };
         let parts = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(area);
-        let accent = if focused { Color::Cyan } else { Color::DarkGray };
+        let accent = if focused { Color::Yellow } else { Color::DarkGray };
         let mut head = vec![
             Span::styled(format!("{} 参数 · {}", if focused { "▸" } else { " " }, form.title), Style::default().fg(accent).add_modifier(Modifier::BOLD)),
             Span::styled(format!("   {}", form.desc), Style::default().fg(Color::Gray)),
@@ -2019,7 +2052,7 @@ impl App {
     /// 结果区：无边框，首行给等价 CLI 命令
     fn draw_result_plain(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
         let parts = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(area);
-        let accent = if focused { Color::Cyan } else { Color::DarkGray };
+        let accent = if focused { Color::Yellow } else { Color::DarkGray };
         let cli = self.form.as_ref().map(|form| task_info(form.task).cli).unwrap_or("");
         let file = self.current_file.as_ref().map(|path| path.display().to_string()).unwrap_or_default();
         let head = Line::from(vec![
