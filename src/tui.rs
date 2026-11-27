@@ -631,7 +631,7 @@ impl Field {
                 let value = options.get(*index).copied().unwrap_or("");
                 Line::from(Span::styled(format!("‹ {value} ›"), Style::default().fg(Color::Yellow)))
             }
-            Field::Bool { value, .. } => Line::from(if *value { "[x]" } else { "[ ]" }),
+            Field::Bool { value, .. } => Line::from(Span::styled(if *value { "✓" } else { "✗" }, Style::default().fg(if *value { Color::Green } else { Color::Red }))),
             Field::Text { input, .. } | Field::File { input, .. } => {
                 if !active {
                     return Line::from(input.value.clone());
@@ -717,7 +717,8 @@ impl Form {
                 _ => {}
             },
             Field::Bool { value, .. } => {
-                if matches!(key.code, KeyCode::Char(' ')) {
+                // 左右方向键切换开关（空格也接受）
+                if matches!(key.code, KeyCode::Left | KeyCode::Right | KeyCode::Char(' ')) {
                     *value = !*value;
                 }
             }
