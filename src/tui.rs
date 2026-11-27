@@ -1158,7 +1158,7 @@ impl App {
             help_scroll: 0,
             log_scroll: 0,
             job: None,
-            status: "Tab 切换 文件/分析菜单，Enter 选择；o 打开文件浏览器".to_string(),
+            status: "Tab 切换 文件/分析菜单，Enter 选择".to_string(),
             quit: false,
             tick: 0,
         };
@@ -1449,7 +1449,6 @@ impl App {
             KeyCode::Left | KeyCode::Char('h') => self.collapse_or_parent(),
             KeyCode::Right | KeyCode::Char('l') => self.expand_or_child(),
             KeyCode::Enter | KeyCode::Char(' ') => self.activate_selection(),
-            KeyCode::Char('o') => self.open_browser(BrowserTarget::CurrentFile),
             KeyCode::Char('p') => self.open_viewer(),
             KeyCode::Char('v') => {
                 if self.result.is_some() {
@@ -1549,7 +1548,6 @@ impl App {
             KeyCode::End => self.result_scroll = u16::MAX,
             KeyCode::Char('e') => self.export(false),
             KeyCode::Char('j') => self.export(true),
-            KeyCode::Char('o') => self.open_browser(BrowserTarget::CurrentFile),
             KeyCode::Char('p') => self.open_viewer(),
             KeyCode::Char('q') => self.quit = true,
             _ => {}
@@ -1953,7 +1951,11 @@ impl App {
     }
 
     fn draw_header(&self, frame: &mut Frame, area: Rect) {
-        let file = self.current_file.as_ref().map(|path| path.display().to_string()).unwrap_or_else(|| "未打开文件（按 o 选择）".to_string());
+        let file = self
+            .current_file
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "未打开文件（在左侧列表按 Enter 选择）".to_string());
         let mut spans = vec![
             Span::styled(" rswfn ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw(" "),
@@ -2232,8 +2234,8 @@ impl App {
 
         let hints = match self.mode {
             Mode::Welcome => match self.focus {
-                Focus::Files => "↑/↓ 选择文件  Enter 打开/进入  Backspace 上级  Tab 分析菜单  o 浏览器  F4 结构预览  F1 帮助  q 退出（Esc 不退出）",
-                Focus::Tree => "↑/↓ 移动  ←/→ 折叠/展开  Enter 打开  Tab 文件列表  o 浏览器  F4 结构预览  F1 帮助  q 退出（Esc 不退出）",
+                Focus::Files => "↑/↓ 选择文件  Enter 打开/进入  Backspace 上级  Tab 分析菜单  F4 结构预览  F1 帮助  q 退出（Esc 不退出）",
+                Focus::Tree => "↑/↓ 移动  ←/→ 折叠/展开  +/- 全部展开/收起  Enter 打开  Tab 文件列表  F4 结构预览  F1 帮助  q 退出（Esc 不退出）",
             },
             Mode::Form => "↑/↓ 切换字段  Enter 运行  Ctrl+O 选择文件  Esc 返回  F4 结构预览  F1 帮助  F3 结果",
             Mode::Running => "Esc 转后台  F2 日志  F4 结构预览  F3 结果  Ctrl+C 退出",
