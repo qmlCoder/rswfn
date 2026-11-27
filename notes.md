@@ -1,5 +1,65 @@
 # 变更记录
 
+## 2026-11-26 TUI 层级化 + F1/F2/F3 全局 + 结果区增强
+
+- 层级：文件选择 → 分析菜单 → 参数/结果。`Esc` 逐层回退（结果层→菜单层→文件层，最外层只提示不退出），
+  `Enter` 逐层进入（文件→菜单→参数；参数区 Enter 开始计算并把焦点交给结果区）。
+- 运行层改为同屏上下分栏：上 42% 参数表单、下 58% 结果；结果区标题直接显示等价 CLI
+  （`rswfn <task.cli> <file>`），无结果时给出提示。
+- `c` 复制结果：OSC 52（base64 自实现，不加依赖）让本地终端写剪贴板，同时落盘
+  `rswfn_copy_<时间>.txt` 兜底；`s` 保存文本；`Tab` 由结果区回到参数区。
+- F1/F2/F3 改为全局可用（弹层里也生效），F3 总是打开结果面板。
+- 分析菜单里 `+`/`=` 展开全部、`-`/`_` 收起全部，并把选中行归零。
+- 测试：`esc_in_menu_does_not_quit` 跟着改成层级语义；75 项全部通过。
+
+## 2026-11-27 CLI 重组：dmo → qmcal dhmo，π 键级/键级分解归入 bondprop order
+
+- `dmo` 改名为 `dhmo` 并移入 `qmcal`：`rswfn qmcal dhmo -i in.dmi -o out.dmo`
+  （与 hf/dft/lks 统一用 `-i/--input`、`-o/--output`）。服务层实现随之从
+  `service/file.rs::dmo` 移到 `service/qmcal.rs::dhmo`，`file.rs` 不再依赖 `crate::qmcal`。
+- `pi-order`、`decom` 移入 `bondprop order`：`rswfn bondprop order pi-order`、
+  `rswfn bondprop order decom`；`bondprop` 顶层只剩 `order` 与 `energy`。
+- `absolute_str` 从 `service/file.rs` 上移到 `service/mod.rs`，供 file / qmcal 共用。
+- `src/tui.rs`：菜单树同步（`order · 键级` 下新增 π 键级/键级分解，`qmcal` 下新增
+  DHMO）；`TaskId::Dmo` 改名 `Dhmo`，CLI 提示路径同步。
+- 顺带加固：`qmcal dhmo` 先校验输入是 `.dmi` 且含 `#atos` 段，缺失时返回中文错误，
+  而不是在 faer 特征分解里 panic（旧 `dmo` 命令同样会 panic）。
+- README 示例命令同步，并补充 `bondprop order pi-order` 与 `qmcal dhmo` 示例。
+- *破坏性变更*：`rswfn dmo ...`、`rswfn bondprop pi-order|decom ...` 不再可用。
+- 验证：`rswfn qmcal --help` / `bondprop --help` / `bondprop order --help`、`rswfn list`；
+  实跑 `bondprop order decom`、`bondprop order pi-order`；`qmcal dhmo` 用无效 .dmi
+  确认报错（仓库内没有含 `#atos` 的 .dmi 样本，未能端到端跑通正常路径）。
+- `cargo check --all-targets`、`cargo test --bin rswfn`（75）、`cargo test --lib`（35）
+  全部通过。
+
+## 2026-11-27 CLI 层级对齐源码模块（atomprop charge / activity）
+
+- `pi-pop` 移到 `atomprop charge` 下（实现位于 `props/atomprop/charge.rs`）。
+- `fukui`、`fukui-pi`、`freev`、`freev-pi` 移到新的 `atomprop activity` 下
+  （实现位于 `props/atomprop/activity.rs`）。
+- `src/cli.rs`：`AtompropCmds` 精简为 `Charge` / `Activity` 两个子命令组；
+  `ChargeCmds` 新增 `PiPop`，新增 `ActivityCmds` 承载福井函数与自由价；
+  `run_atomprop` 相应改为两层 match。
+- `src/tui.rs`：菜单树同步为 `charge · 电荷`（含 π 电子布居）与 `activity · 活性`
+  两个分组；`TASKS` 中 5 条 CLI 提示路径随之更新。
+- README 示例命令同步：`atomprop charge pi-pop`、`atomprop activity fukui`。
+- *破坏性变更*：旧写法 `rswfn atomprop pi-pop ...`、`rswfn atomprop fukui ...` 等
+  不再可用（未保留兼容别名）。
+- 验证：`rswfn atomprop --help`、`rswfn list`；实跑 `atomprop charge mulliken`、
+  `atomprop charge pi-pop`、`atomprop activity freev`、`atomprop activity fukui`。
+
+## 2026-11-27 新增 `rswfn list` 功能树
+
+- 新增 `list` 子命令：基于 clap 的 `CommandFactory` 反射命令定义，树状打印全部
+  子命令及其中文说明（`├──` / `└──` / `│` 缩进）；`--args` 同时列出各命令的定位
+  参数与选项（可选值写成 `<pocv|mocv>` 形式）。
+- 命令树由 `Commands` 定义自动生成，以后新增子命令无需维护这份清单。
+- 结果走服务层的 `Report`（树线写入 `notes`），因此 `--json` 也能拿到结构化输出；
+  文本输出下的分隔线仍按标题宽度，不受长帮助文本影响。
+- 细节：多行 help 只取第一行；`--json`、`--help`、`--version` 等全局/自动选项
+  不在树中重复显示；同级条目的说明按显示宽度对齐（中文按 2 列）。
+- 验证：`rswfn list`、`rswfn list --args`、`rswfn list --json`。
+
 ## 2026-11-26 修复 musl 发布产物（static-pie）并重传 v0.2.0
 
 - 现象：v0.2.0 的 `x86_64-unknown-linux-musl` 产物在 Ubuntu/WSL 上启动即 segfault

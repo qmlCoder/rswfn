@@ -97,7 +97,7 @@ enum TaskId {
     QmDft,
     Coord,
     Trans,
-    Dmo,
+    Dhmo,
     Si,
 }
 
@@ -142,31 +142,31 @@ static TASKS: &[TaskInfo] = &[
     },
     TaskInfo {
         id: TaskId::PiPop,
-        cli: "atomprop pi-pop",
+        cli: "atomprop charge pi-pop",
         name: "π 电子布居",
         desc: "POCV / MOCV 原子 π 电子布居",
     },
     TaskInfo {
         id: TaskId::Fukui,
-        cli: "atomprop fukui",
+        cli: "atomprop activity fukui",
         name: "福井函数",
         desc: "福井函数与双描述符（需 N/N+1/N-1）",
     },
     TaskInfo {
         id: TaskId::FukuiPi,
-        cli: "atomprop fukui-pi",
+        cli: "atomprop activity fukui-pi",
         name: "π 福井函数",
         desc: "π 轨道福井函数与双描述符",
     },
     TaskInfo {
         id: TaskId::Freev,
-        cli: "atomprop freev",
+        cli: "atomprop activity freev",
         name: "自由价",
         desc: "自由价（free valence）",
     },
     TaskInfo {
         id: TaskId::FreevPi,
-        cli: "atomprop freev-pi",
+        cli: "atomprop activity freev-pi",
         name: "π 自由价",
         desc: "π 自由价（POCV）",
     },
@@ -190,13 +190,13 @@ static TASKS: &[TaskInfo] = &[
     },
     TaskInfo {
         id: TaskId::PiOrder,
-        cli: "bondprop pi-order",
+        cli: "bondprop order pi-order",
         name: "π 键级",
         desc: "POCV / MOCV π 键级",
     },
     TaskInfo {
         id: TaskId::Decom,
-        cli: "bondprop decom",
+        cli: "bondprop order decom",
         name: "键级分解",
         desc: "σ/π/δ/φ 键级分量",
     },
@@ -279,8 +279,8 @@ static TASKS: &[TaskInfo] = &[
         desc: "log/out→gjf、gjf→dmi",
     },
     TaskInfo {
-        id: TaskId::Dmo,
-        cli: "dmo",
+        id: TaskId::Dhmo,
+        cli: "qmcal dhmo",
         name: "DHMO 计算",
         desc: "简单 Hückel 计算",
     },
@@ -333,20 +333,17 @@ static TREE: &[Node] = &[
     branch(
         "atomprop · 原子属性",
         &[
-            branch("charge · 电荷", &[leaf(TaskId::Mulliken), leaf(TaskId::Lowdin), leaf(TaskId::Hirshfeld), leaf(TaskId::Spin), leaf(TaskId::Resp)]),
-            leaf(TaskId::PiPop),
-            leaf(TaskId::Fukui),
-            leaf(TaskId::FukuiPi),
-            leaf(TaskId::Freev),
-            leaf(TaskId::FreevPi),
+            branch(
+                "charge · 电荷",
+                &[leaf(TaskId::Mulliken), leaf(TaskId::Lowdin), leaf(TaskId::Hirshfeld), leaf(TaskId::Spin), leaf(TaskId::Resp), leaf(TaskId::PiPop)],
+            ),
+            branch("activity · 活性", &[leaf(TaskId::Fukui), leaf(TaskId::FukuiPi), leaf(TaskId::Freev), leaf(TaskId::FreevPi)]),
         ],
     ),
     branch(
         "bondprop · 键属性",
         &[
-            branch("order · 键级", &[leaf(TaskId::Mayer), leaf(TaskId::Wiberg), leaf(TaskId::OrderObt)]),
-            leaf(TaskId::PiOrder),
-            leaf(TaskId::Decom),
+            branch("order · 键级", &[leaf(TaskId::Mayer), leaf(TaskId::Wiberg), leaf(TaskId::OrderObt), leaf(TaskId::PiOrder), leaf(TaskId::Decom)]),
             leaf(TaskId::BondEnergy),
         ],
     ),
@@ -355,8 +352,7 @@ static TREE: &[Node] = &[
     branch("gridprop · 格点属性", &[leaf(TaskId::GridDensity), leaf(TaskId::GridPotential), leaf(TaskId::GridTopology)]),
     leaf(TaskId::Coord),
     leaf(TaskId::Trans),
-    leaf(TaskId::Dmo),
-    branch("qmcal · 量子化学", &[leaf(TaskId::QmHf), leaf(TaskId::QmDft)]),
+    branch("qmcal · 量子化学", &[leaf(TaskId::QmHf), leaf(TaskId::QmDft), leaf(TaskId::Dhmo)]),
     leaf(TaskId::Si),
     viewer(),
 ];
@@ -509,7 +505,7 @@ fn field_specs(id: TaskId) -> Vec<FieldSpec> {
         ],
         TaskId::Coord => vec![spec("坐标单位", choice(UNITS, 0)), spec("输出 xyz", text(""))],
         TaskId::Trans => vec![spec("输入文件", file_req()), spec("输出文件", text(""))],
-        TaskId::Dmo => vec![spec("输入 .dmi", file_req()), spec("输出 .dmo", text(""))],
+        TaskId::Dhmo => vec![spec("输入 .dmi", file_req()), spec("输出 .dmo", text(""))],
         TaskId::Si => vec![spec("输入文件（用 ; 分隔）", text("")), spec("输出文本", text(""))],
     }
 }
@@ -1016,6 +1012,21 @@ fn is_supported_file(path: &Path) -> bool {
 
 // ===== 覆盖层 =====
 
+/// OSC 52 需要标准 base64（不引入依赖，自己编）
+fn base64(data: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        out.push(TABLE[(n >> 18) as usize & 63] as char);
+        out.push(TABLE[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
 /// 预览配色循环：真彩色 → 256 色 → 无色 ASCII
 fn next_depth(depth: viewer::Depth) -> viewer::Depth {
     match depth {
@@ -1201,10 +1212,7 @@ impl App {
             self.quit = true;
             return;
         }
-        if self.overlay.is_some() {
-            self.on_key_overlay(key);
-            return;
-        }
+        // F1/F2/F3 全局可用：弹层里也能直接切过去（F3 会先关掉弹层）
         match key.code {
             KeyCode::F(1) => {
                 self.help_scroll = 0;
@@ -1217,18 +1225,24 @@ impl App {
                 return;
             }
             KeyCode::F(3) => {
+                self.overlay = None;
                 if self.result.is_some() {
                     self.mode = Mode::Result;
+                    self.status = "F3 计算结果：c 复制 · s 保存文本 · Tab 回到参数".to_string();
                 } else {
-                    self.status = "还没有计算结果".to_string();
+                    self.status = "还没有计算结果：在功能层选一个任务并按 Enter".to_string();
                 }
                 return;
             }
-            KeyCode::F(4) => {
-                self.open_viewer();
-                return;
-            }
             _ => {}
+        }
+        if self.overlay.is_some() {
+            self.on_key_overlay(key);
+            return;
+        }
+        if key.code == KeyCode::F(4) {
+            self.open_viewer();
+            return;
         }
         match self.mode {
             Mode::Welcome => self.on_key_menu(key),
@@ -1324,12 +1338,42 @@ impl App {
         }
     }
 
+    /// `+` 展开全部分组，`-` 收起全部分组
+    fn expand_all(&mut self, expand: bool) {
+        self.expanded.clear();
+        if expand {
+            fn walk(nodes: &'static [Node], out: &mut HashSet<usize>) {
+                for node in nodes {
+                    if !node.children.is_empty() {
+                        out.insert(node_key(node));
+                        walk(node.children, out);
+                    }
+                }
+            }
+            walk(TREE, &mut self.expanded);
+        }
+        self.menu_index = 0;
+    }
+
     fn on_key_menu(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => self.quit = true,
-            KeyCode::Esc => {
-                // 防止误触退出：菜单里 Esc 不结束程序
-                self.status = "Esc 不会退出；按 q 或 Ctrl+C 退出".to_string();
+            KeyCode::Esc => match self.focus {
+                // 功能层 → 回上层（文件选择）
+                Focus::Tree => {
+                    self.focus = Focus::Files;
+                    self.status = "已返回上一层：文件选择".to_string();
+                }
+                // 最外层：不退出（防误触）
+                Focus::Files => self.status = "已在最外层（文件选择）；q 或 Ctrl+C 退出".to_string(),
+            },
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                self.expand_all(true);
+                self.status = "已展开全部分组".to_string();
+            }
+            KeyCode::Char('-') | KeyCode::Char('_') => {
+                self.expand_all(false);
+                self.status = "已收起全部分组".to_string();
             }
             KeyCode::Tab | KeyCode::BackTab => {
                 self.focus = match self.focus {
@@ -1415,7 +1459,15 @@ impl App {
 
     fn on_key_result(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Esc => self.mode = if self.form.is_some() { Mode::Form } else { Mode::Welcome },
+            // 层级回退：结果层 → 功能层（再按 Esc 才到文件层）
+            KeyCode::Esc => {
+                self.mode = Mode::Welcome;
+                self.focus = Focus::Tree;
+                self.status = "已返回上一层：分析菜单".to_string();
+            }
+            KeyCode::Tab | KeyCode::BackTab => self.mode = Mode::Form,
+            KeyCode::Char('c') => self.copy_result(),
+            KeyCode::Char('s') => self.export(false),
             KeyCode::Up => self.result_scroll = self.result_scroll.saturating_sub(1),
             KeyCode::Down => self.result_scroll = self.result_scroll.saturating_add(1),
             KeyCode::PageUp => self.result_scroll = self.result_scroll.saturating_sub(10),
@@ -1429,6 +1481,26 @@ impl App {
             KeyCode::Char('q') => self.quit = true,
             _ => {}
         }
+    }
+
+    /// `c`：用 OSC 52 让本地终端把结果写进剪贴板，同时落盘一份做兜底
+    fn copy_result(&mut self) {
+        let Some(report) = self.result.as_ref() else { return };
+        let text = report.to_string();
+        let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let path = format!("rswfn_copy_{stamp}.txt");
+        let saved = std::fs::write(&path, &text).is_ok();
+
+        use std::io::Write as _;
+        let mut out = std::io::stdout();
+        let _ = write!(out, "\x1b]52;c;{}\x07", base64(text.as_bytes()));
+        let _ = out.flush();
+
+        self.status = if saved {
+            format!("已发送 OSC 52 复制（终端需支持）；同时已存 {path}")
+        } else {
+            "已发送 OSC 52 复制请求（终端需支持）".to_string()
+        };
     }
 
     fn on_paste(&mut self, text: String) {
@@ -1716,9 +1788,16 @@ impl App {
         self.draw_tree(frame, body[1]);
         match self.mode {
             Mode::Welcome => self.draw_welcome(frame, body[2]),
-            Mode::Form => self.draw_form(frame, body[2]),
-            Mode::Running => self.draw_running(frame, body[2]),
-            Mode::Result => self.draw_result(frame, body[2]),
+            // 运行层：参数在上、结果在下，同屏显示
+            Mode::Form | Mode::Running | Mode::Result => {
+                let parts = Layout::vertical([Constraint::Percentage(42), Constraint::Percentage(58)]).split(body[2]);
+                self.draw_form(frame, parts[0]);
+                if self.mode == Mode::Running {
+                    self.draw_running(frame, parts[1]);
+                } else {
+                    self.draw_result(frame, parts[1]);
+                }
+            }
         }
         self.draw_status(frame, chunks[2]);
         // 弹层盖住内容区即可，不要压住顶部信息条和底部状态栏
@@ -1835,8 +1914,23 @@ impl App {
     }
 
     fn draw_result(&mut self, frame: &mut Frame, area: Rect) {
-        let Some(report) = self.result.as_ref() else { return };
+        // 标题里直接给出等价 CLI 命令，方便复制到脚本里重跑
+        let cli = self.form.as_ref().map(|form| task_info(form.task).cli).unwrap_or("");
+        let file = self.current_file.as_ref().map(|path| path.display().to_string()).unwrap_or_default();
+        let heading = if cli.is_empty() { " 结果 ".to_string() } else { format!(" 结果 · rswfn {cli} {file} ") };
+
+        let Some(report) = self.result.as_ref() else {
+            let hint = vec![
+                Line::from(Span::styled(" 尚无结果", Style::default().fg(Color::DarkGray))),
+                Line::from(""),
+                Line::from(" 在参数区填好后按 Enter 开始计算；结果会一直保留在这里（F3 也随时可看）"),
+                Line::from(Span::styled(" c 复制结果 · s 保存文本", Style::default().fg(Color::Gray))),
+            ];
+            frame.render_widget(Paragraph::new(hint).block(Block::new().borders(Borders::ALL).title(heading)), area);
+            return;
+        };
         let title = report.title.clone();
+        let _ = title;
         let lines: Vec<Line> = report
             .to_string()
             .lines()
@@ -1855,7 +1949,9 @@ impl App {
         let scroll = self.result_scroll.min(max_scroll);
         self.result_scroll = scroll;
 
-        let paragraph = Paragraph::new(lines).scroll((scroll, 0)).block(Block::new().borders(Borders::ALL).title(format!(" {title} ")));
+        let paragraph = Paragraph::new(lines)
+            .scroll((scroll, 0))
+            .block(Block::new().borders(Borders::ALL).title(format!("{heading} c 复制 · s 保存 · ↑↓ 滚动 ")));
         frame.render_widget(paragraph, area);
     }
 
@@ -2300,10 +2396,10 @@ fn build_task(form: &Form, current: Option<&Path>) -> Result<TaskFn, String> {
             let output = out_path(form.text(1), "输出文件")?;
             Ok(Box::new(move || file::trans(&input, &output)))
         }
-        TaskId::Dmo => {
+        TaskId::Dhmo => {
             let input = req_path(form.text(0), "输入文件")?;
             let output = opt_path(form.text(1));
-            Ok(Box::new(move || file::dmo(&input, output.as_deref())))
+            Ok(Box::new(move || qmcal::dhmo(&input, output.as_deref())))
         }
         TaskId::Si => {
             let inputs: Vec<PathBuf> = split_list(form.text(0)).iter().map(|path| req_path(path, "输入文件")).collect::<Result<_, _>>()?;
@@ -2777,8 +2873,13 @@ mod tests {
     fn esc_in_menu_does_not_quit() {
         let mut app = App::new(Arc::new(Mutex::new(VecDeque::new())), None);
         app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert!(!app.quit, "菜单里 Esc 不应退出");
-        assert!(app.status.contains("不会退出"), "应提示退出方式，实际: {}", app.status);
+        assert!(!app.quit, "最外层 Esc 不应退出");
+        assert!(app.status.contains('q'), "应提示退出方式，实际: {}", app.status);
+        // 功能层按 Esc 先回文件层（层级回退），不退出
+        app.focus = Focus::Tree;
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!app.quit, "功能层 Esc 不应退出");
+        assert_eq!(app.focus, Focus::Files, "功能层 Esc 应回到文件层");
         app.on_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         assert!(app.quit, "q 仍应退出");
     }
