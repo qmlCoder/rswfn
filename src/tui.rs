@@ -1957,7 +1957,7 @@ impl App {
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "未打开文件（在左侧列表按 Enter 选择）".to_string());
         let mut spans = vec![
-            Span::styled(" rswfn ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" rswfn {} ", env!("CARGO_PKG_VERSION")), Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw(" "),
             Span::styled(file, Style::default().fg(Color::White)),
         ];
