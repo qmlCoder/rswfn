@@ -1845,6 +1845,25 @@ impl App {
 
     /// 打开分子结构预览（F4 / p）
     fn open_viewer(&mut self) {
+        // 文件面板里 F4 预览光标所在的分子（不一定是已打开的那个）
+        if self.active_panel() == Panel::Files {
+            if let Some(entry) = self.files.current().filter(|entry| !entry.is_dir).cloned() {
+                let name = entry.name.clone();
+                match viewer::load(&entry.path) {
+                    Ok(mol) if !mol.is_empty() => {
+                        self.overlay = Some(Overlay::Viewer(ViewerState {
+                            title: name,
+                            mol,
+                            view: View::default(),
+                            depth: viewer::Depth::detect(),
+                        }));
+                    }
+                    Ok(_) => self.status = format!("{name} 里没有可预览的原子坐标"),
+                    Err(err) => self.status = format!("无法预览 {name}: {err}"),
+                }
+                return;
+            }
+        }
         let Some(header) = self.header.as_ref() else {
             self.status = if self.header_rx.is_some() {
                 "正在读取分子信息，请稍候…".to_string()
