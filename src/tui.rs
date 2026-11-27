@@ -1788,16 +1788,8 @@ impl App {
         self.draw_tree(frame, body[1]);
         match self.mode {
             Mode::Welcome => self.draw_welcome(frame, body[2]),
-            // 运行层：参数在上、结果在下，同屏显示
-            Mode::Form | Mode::Running | Mode::Result => {
-                let parts = Layout::vertical([Constraint::Percentage(42), Constraint::Percentage(58)]).split(body[2]);
-                self.draw_form(frame, parts[0]);
-                if self.mode == Mode::Running {
-                    self.draw_running(frame, parts[1]);
-                } else {
-                    self.draw_result(frame, parts[1]);
-                }
-            }
+            // 运行层：参数在上、结果在下，中间一条横线
+            Mode::Form | Mode::Running | Mode::Result => self.draw_run(frame, body[2]),
         }
         self.draw_status(frame, chunks[2]);
         // 弹层盖住内容区即可，不要压住顶部信息条和底部状态栏
@@ -1866,6 +1858,105 @@ impl App {
         ];
         let paragraph = Paragraph::new(lines).block(Block::new().borders(Borders::ALL).title(" 欢迎 "));
         frame.render_widget(paragraph, area);
+    }
+
+    /// 运行层：参数在上、结果在下，中间只隔一条横线
+    fn draw_run(&mut self, frame: &mut Frame, area: Rect) {
+        let chunks = Layout::vertical([Constraint::Min(4), Constraint::Length(1), Constraint::Min(3)]).split(area);
+        let param_focus = self.mode == Mode::Form;
+        self.draw_params(frame, chunks[0], param_focus);
+        let rule = "─".repeat(chunks[1].width as usize);
+        frame.render_widget(Paragraph::new(Line::from(Span::styled(rule, Style::default().fg(Color::DarkGray)))), chunks[1]);
+        if self.mode == Mode::Running {
+            self.draw_running_plain(frame, chunks[2]);
+        } else {
+            self.draw_result_plain(frame, chunks[2], !param_focus);
+        }
+    }
+
+    /// 参数区：无边框；焦点用左侧 ▸ 与颜色区分
+    fn draw_params(&self, frame: &mut Frame, area: Rect, focused: bool) {
+        let Some(form) = &self.form else { return };
+        let parts = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(area);
+        let accent = if focused { Color::Cyan } else { Color::DarkGray };
+        let mut head = vec![
+            Span::styled(format!("{} 参数 · {}", if focused { "▸" } else { " " }, form.title), Style::default().fg(accent).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("   {}", form.desc), Style::default().fg(Color::Gray)),
+        ];
+        // 只有文件参数（或完全没有参数）时，提示直接回车即可
+        if form.fields.iter().all(|field| matches!(field, Field::File { .. })) {
+            head.push(Span::styled("    不需要输入参数，按 Enter 执行计算", Style::default().fg(Color::Yellow)));
+        }
+        frame.render_widget(Paragraph::new(Line::from(head)), parts[0]);
+
+        let rows: Vec<Row> = form
+            .fields
+            .iter()
+            .enumerate()
+            .map(|(i, field)| {
+                let active = focused && i == form.selected;
+                let label = if active { format!("▸ {}", field.label()) } else { format!("  {}", field.label()) };
+                Row::new(vec![Cell::from(label), Cell::from(field.value_line(active))])
+            })
+            .collect();
+        let table = Table::new(rows, [Constraint::Length(22), Constraint::Min(20)])
+            .row_highlight_style(Style::default().bg(Color::DarkGray))
+            .highlight_symbol("");
+        let mut state = TableState::default();
+        if focused {
+            state.select(Some(form.selected));
+        }
+        frame.render_stateful_widget(table, parts[1], &mut state);
+    }
+
+    /// 结果区：无边框，首行给等价 CLI 命令
+    fn draw_result_plain(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
+        let parts = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(area);
+        let accent = if focused { Color::Cyan } else { Color::DarkGray };
+        let cli = self.form.as_ref().map(|form| task_info(form.task).cli).unwrap_or("");
+        let file = self.current_file.as_ref().map(|path| path.display().to_string()).unwrap_or_default();
+        let head = Line::from(vec![
+            Span::styled(format!("{} 结果", if focused { "▸" } else { " " }), Style::default().fg(accent).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("   等价命令: rswfn {cli} {file}"), Style::default().fg(Color::Gray)),
+            Span::styled("    c 复制 · s 保存 · Tab 回到参数", Style::default().fg(Color::DarkGray)),
+        ]);
+        frame.render_widget(Paragraph::new(head), parts[0]);
+
+        let Some(report) = self.result.as_ref() else {
+            frame.render_widget(Paragraph::new(Span::styled(" 尚无结果：在参数区按 Enter 开始计算", Style::default().fg(Color::DarkGray))), parts[1]);
+            return;
+        };
+        let lines: Vec<Line> = report
+            .to_string()
+            .lines()
+            .map(|line| {
+                let style = if line.starts_with("===") || line.starts_with("---") {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                Line::from(Span::styled(line.to_string(), style))
+            })
+            .collect();
+        let inner = parts[1].height as usize;
+        let max_scroll = lines.len().saturating_sub(inner) as u16;
+        self.result_scroll = self.result_scroll.min(max_scroll);
+        frame.render_widget(Paragraph::new(lines).scroll((self.result_scroll, 0)), parts[1]);
+    }
+
+    /// 运行中：同样无边框，保留上面参数区的可见性
+    fn draw_running_plain(&self, frame: &mut Frame, area: Rect) {
+        let job = self.job.as_ref();
+        let last_log = self.log_lines.lock().ok().and_then(|lines| lines.back().cloned()).unwrap_or_default();
+        let lines = vec![
+            Line::from(Span::styled(
+                format!("{} 正在计算（Esc 转入后台，F2 看日志）", self.spinner()),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(job.map(|job| format!("任务: {}   已用时: {:.1} s", job.label, job.started.elapsed().as_secs_f64())).unwrap_or_default()),
+            Line::from(Span::styled(last_log, Style::default().fg(Color::DarkGray))),
+        ];
+        frame.render_widget(Paragraph::new(lines), area);
     }
 
     fn draw_form(&self, frame: &mut Frame, area: Rect) {
