@@ -1464,7 +1464,12 @@ impl App {
                     form.next();
                 }
             }
-            KeyCode::Enter => self.start_job(),
+            // 新计算开始前先清空，避免把上一次的结果误认为本次已完成
+            KeyCode::Enter => {
+                self.result = None;
+                self.result_scroll = 0;
+                self.start_job();
+            }
             _ => {
                 if let Some(form) = self.form.as_mut() {
                     form.edit(key);
@@ -1489,11 +1494,16 @@ impl App {
 
     fn on_key_result(&mut self, key: KeyEvent) {
         match key.code {
-            // 层级回退：结果层 → 功能层（再按 Esc 才到文件层）
+            // 层级回退：结果 → 参数 → 分析菜单
             KeyCode::Esc => {
-                self.mode = Mode::Welcome;
-                self.focus = Focus::Tree;
-                self.status = "已返回上一层：分析菜单".to_string();
+                if self.form.is_some() {
+                    self.mode = Mode::Form;
+                    self.status = "已返回上一层：参数输入".to_string();
+                } else {
+                    self.mode = Mode::Welcome;
+                    self.focus = Focus::Tree;
+                    self.status = "已返回上一层：分析菜单".to_string();
+                }
             }
             KeyCode::Tab | KeyCode::BackTab => self.mode = Mode::Form,
             KeyCode::Char('c') => self.copy_result(),
@@ -1663,6 +1673,9 @@ impl App {
                     let info = task_info(task);
                     self.form = Some(Form::new(task, self.current_file.as_deref()));
                     self.mode = Mode::Form;
+                    // 换了任务就把上一次的结果清掉，免得误以为是这次的结果
+                    self.result = None;
+                    self.result_scroll = 0;
                     self.status = format!("rswfn {} …", info.cli);
                 }
             }
@@ -1953,7 +1966,10 @@ impl App {
 
     /// 运行层：参数在上、结果在下，中间只隔一条横线
     fn draw_run(&mut self, frame: &mut Frame, area: Rect) {
-        let chunks = Layout::vertical([Constraint::Min(4), Constraint::Length(1), Constraint::Min(3)]).split(area);
+        // 参数区按字段数量定高（标题 + 字段，最多 8 行），剩下的都给结果区
+        let field_rows = self.form.as_ref().map(|form| form.fields.len()).unwrap_or(0) as u16;
+        let param_height = (field_rows + 1).clamp(2, 8);
+        let chunks = Layout::vertical([Constraint::Length(param_height), Constraint::Length(1), Constraint::Min(3)]).split(area);
         let param_focus = self.mode == Mode::Form;
         self.draw_params(frame, chunks[0], param_focus);
         let rule = "─".repeat(chunks[1].width as usize);
